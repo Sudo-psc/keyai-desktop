@@ -1,0 +1,3 @@
+# Este projeto é desenvolvido em Rust, não Python.
+# Para dependências Rust, veja Cargo.toml
+# Para dependências JavaScript/React, veja frontend/package.json 

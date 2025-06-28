@@ -1,0 +1,84 @@
+[package]
+name = "keyai-desktop"
+version = "1.0.0"
+description = "Sistema de Registro e Busca de Teclas com Privacidade"
+authors = ["KeyAI Team"]
+license = "MIT"
+repository = "https://github.com/keyai/keyai-desktop"
+edition = "2021"
+rust-version = "1.78"
+
+[lib]
+name = "keyai_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "keyai-desktop"
+path = "src/main.rs"
+
+[dependencies]
+# Tauri dependencies
+tauri = { version = "1.7", features = ["dialog-open", "dialog-save", "fs-create-dir", "fs-read-file", "fs-write-file", "global-shortcut-all", "shell-open", "window-close", "window-hide", "window-show"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Input capture
+rdev = "0.5.3"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher", "vtab", "functions"] }
+
+# Embeddings and ML - Temporariamente comentadas para testes
+# rust-bert = "0.21"
+# candle-core = "0.6"
+# candle-nn = "0.6"
+# candle-transformers = "0.6"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Regex for PII masking
+regex = "1.10"
+
+# Crypto
+sha2 = "0.10"
+rand = "0.8"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Configuration
+config = "0.14"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.0"
+
+[[bench]]
+name = "search_benchmark"
+harness = false
+
+[[bench]]
+name = "agent_benchmark"
+harness = false
+
+[build-dependencies]
+tauri-build = { version = "1.0", features = [] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true 

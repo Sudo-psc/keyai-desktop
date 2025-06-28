@@ -1,0 +1,52 @@
+{
+  "build": {
+    "beforeDevCommand": "cd frontend && npm run dev",
+    "beforeBuildCommand": "cd frontend && npm run build",
+    "devPath": "http://localhost:1420",
+    "distDir": "../frontend/dist"
+  },
+  "package": {
+    "productName": "KeyAI Desktop",
+    "version": "1.0.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": {
+        "open": true
+      },
+      "dialog": {
+        "open": true,
+        "save": true
+      },
+      "fs": {
+        "readFile": true,
+        "writeFile": true,
+        "createDir": true
+      },
+      "window": {
+        "close": true,
+        "hide": true,
+        "show": true
+      },
+      "globalShortcut": {
+        "all": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "targets": "all",
+      "identifier": "com.keyai.desktop",
+      "category": "Productivity"
+    },
+    "windows": [
+      {
+        "title": "KeyAI Desktop",
+        "width": 1200,
+        "height": 800,
+        "center": true,
+        "theme": "Dark"
+      }
+    ]
+  }
+} 

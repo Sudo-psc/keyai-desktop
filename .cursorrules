@@ -1,0 +1,168 @@
+# KeyAI Desktop - Sistema de Registro e Busca de Teclas com Privacidade
+
+## Visão Geral do Projeto
+KeyAI Desktop v1.0 é um aplicativo de registro de teclas (keylogger) local focado em privacidade, que captura, mascara PII automaticamente e permite busca híbrida (textual e semântica) no histórico de digitação. Todos os dados permanecem no dispositivo do usuário.
+
+## Estado Atual do Projeto
+- Estrutura básica do projeto criada
+- Módulos principais implementados (agent, masker, db, search, commands)
+- Frontend React com interface de busca
+- Integração Tauri configurada
+- **EM ANDAMENTO**: Escrevendo testes unitários e de integração, debugando a aplicação
+
+## Stack Tecnológico
+- **Linguagem Principal**: Rust 1.78+ (performance e segurança de memória)
+- **Framework Desktop**: Tauri 1.7+ (binários pequenos e seguros)
+- **UI Frontend**: React 18.x + TypeScript 5.x
+- **Captura de Teclas**: rdev 0.5.3+ (suporte multiplataforma)
+- **Banco de Dados**: SQLite com rusqlite 0.31+ e SQLCipher (criptografia)
+- **Busca Full-Text**: FTS5 (extensão SQLite)
+- **Busca Vetorial**: sqlite-vec (busca semântica moderna)
+- **Embeddings**: rust-bert 0.21+ (geração local de embeddings)
+- **CI/CD**: GitHub Actions com tauri-action
+- **Testes**: criterion 0.5+ (benchmarking), cargo test (unitários), Tauri test (integração)
+
+## Estrutura do Projeto
+```
+keyai-desktop/
+├── Cargo.toml              # Configuração principal Rust
+├── tauri.conf.json         # Configuração Tauri
+├── .github/
+│   └── workflows/
+│       └── release.yml     # CI/CD para builds multiplataforma
+├── src/                    # Código Rust (backend)
+│   ├── main.rs            # Entry point
+│   ├── agent/             # Módulo de captura de teclas
+│   ├── masker/            # Módulo de mascaramento PII
+│   ├── db/                # Camada de persistência
+│   ├── search/            # Lógica de busca híbrida
+│   └── commands/          # Comandos Tauri expostos
+├── src-tauri/             # Configurações específicas Tauri
+├── frontend/              # Aplicação React
+│   ├── src/
+│   │   ├── App.tsx       # Componente principal
+│   │   ├── components/   # Componentes React
+│   │   └── hooks/        # Custom hooks
+│   ├── package.json
+│   └── tsconfig.json
+├── tests/                 # Testes de integração
+└── benches/              # Benchmarks com criterion
+```
+
+## Testes e Debug
+- Testes unitários para cada módulo Rust
+- Testes de integração para fluxos completos
+- Testes de captura de teclas com simulação
+- Testes de mascaramento de PII
+- Testes de busca (textual e semântica)
+- Testes de interface React
+- Debug com logging estruturado (tracing)
+
+## Arquitetura e Fluxo de Dados
+
+### Componentes Principais
+1. **Agente (Thread Rust)**: Captura eventos de teclado via rdev em thread de alta prioridade
+2. **Masker (Thread Rust)**: Aplica regex para mascarar PII (CPF, email, telefone)
+3. **DB Writer (Thread Rust)**: Escreve dados mascarados em lote no SQLite criptografado
+4. **GUI (Tauri WebView)**: Interface React para busca e configurações
+
+### Fluxo de Dados
+```
+[Input do Usuário] → [Agente] → [Canal MPSC] → [Masker] → [DB Writer] → [SQLite]
+                                                                             ↑
+[GUI React] ←→ [Comandos Tauri] ←→ [Search Module] ←───────────────────────┘
+```
+
+## Convenções de Código
+
+### Rust
+- Usar `Result<T, E>` para tratamento de erros
+- Documentar funções públicas com `///`
+- Seguir convenções idiomáticas Rust (clippy)
+- Usar canais MPSC para comunicação entre threads
+- Logs estruturados com `tracing`
+
+### React/TypeScript
+- Componentes funcionais com hooks
+- Tipagem forte (evitar `any`)
+- Estado gerenciado com Context API ou Zustand
+- Estilização com CSS Modules ou Tailwind
+
+### Segurança e Privacidade
+- Todos os dados permanecem locais (sem cloud)
+- Banco de dados sempre criptografado (SQLCipher)
+- Mascaramento automático de PII antes do armazenamento
+- Sem telemetria ou analytics
+
+## Funcionalidades v1.0
+
+### Incluídas
+- Captura de teclas para Windows, macOS (X11) e Linux (X11)
+- Mascaramento automático de PII em tempo real
+- Banco de dados local criptografado (keyai.db)
+- Busca híbrida: full-text (FTS5) + semântica (sqlite-vec)
+- GUI minimalista para busca e configurações
+- Instaladores nativos (.msi, .dmg, .AppImage, .deb)
+
+### Excluídas (v1.0)
+- Suporte para Wayland
+- Sincronização em nuvem
+- Versões móveis
+- OCR para captura de texto
+- Customização de padrões PII
+- Funcionalidades multiusuário
+
+## Metas de Performance
+- **Latência de Busca (p95)**: ≤150ms (com 1M palavras)
+- **Uso de CPU (idle)**: <3%
+- **Cobertura de Testes**: >80% no core Rust
+
+## Build e Desenvolvimento
+
+### Desenvolvimento Local
+```bash
+# Backend Rust
+cargo build
+cargo test
+cargo bench
+
+# Frontend React
+cd frontend
+npm install
+npm run dev
+
+# Aplicação completa
+npm run tauri dev
+```
+
+### CI/CD
+- Builds automáticos via GitHub Actions
+- Matriz de build: Windows, macOS, Linux
+- Assinatura de código para Windows e macOS
+- Release automático no GitHub
+
+## Gestão de Riscos
+- **Wayland**: Não suportado na v1.0 (documentar limitação)
+- **Antivírus**: Usar certificado EV e submeter para whitelisting
+- **Performance**: Benchmarking contínuo com criterion
+- **Compatibilidade rdev**: Validar no Sprint 1 (PoC)
+
+## Observações Importantes
+- Priorizar privacidade e performance
+- Arquitetura desacoplada para resiliência
+- Testes E2E com `rdev::simulate`
+- Documentação inline no código
+- Seguir o plano de sprints do PRD
+
+# Regras do Projeto KeyAI Desktop (etapa atual)
+
+- Todos os hooks React devem ser implementados em frontend/src/hooks/ conforme definido em ARCHITECTURE.md.
+- Hooks obrigatórios:
+  - useSearch.ts: gerenciamento de busca (textual, semântica, híbrida), integração com Tauri, sugestões.
+  - useSettings.ts: gerenciamento de configurações do app, persistência em localStorage.
+  - useKeyboard.ts: gerenciamento de atalhos globais de teclado, binding de callbacks customizados.
+- Os hooks devem ser reutilizáveis, tipados e desacoplados dos componentes.
+- O projeto deve manter separação de responsabilidades entre hooks, componentes e lógica de integração Tauri.
+- O frontend deve seguir arquitetura modular, dark mode, e usar Tailwind CSS.
+- Todas as dependências devem estar listadas em package.json (React, lucide-react, date-fns, etc).
+- O backend Rust deve expor comandos Tauri compatíveis com os hooks.
