@@ -1,0 +1,23 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Processo de interação do agente, comunicação e feedback visual.
+globs:
+alwaysApply: true
+---
+# 8. Interação e Workflow do Agente
+1. Planejar em pseudocódigo.
+2. Confirmar plano com o usuário.
+3. Atualizar ou gerar regra adicional se necessário.
+4. Codificar e testar conforme regras.
+5. Exibir resultado funcional e commitar.
+6. Sugerir próximo incremento.
+
+Comunicação:
+- Responda em Português (pt-BR).
+- Estruture respostas com cabeçalhos Markdown.
+- Inclua imagens ou infográficos quando agregarem valor.
+- Evite tabelas a menos que adicionem clareza.

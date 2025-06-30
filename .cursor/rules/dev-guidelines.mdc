@@ -1,0 +1,44 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+description: Diretrizes de desenvolvimento, testes, Git e qualidade de código do projeto.
+globs:
+alwaysApply: true
+
+1. Filosofia de Desenvolvimento: Clareza, MVP e Crescimento Incremental
+	- 1.1 Clareza sobre performance: priorize legibilidade; otimize só após identificar gargalos.
+	- 1.2 MVP: implemente apenas a funcionalidade central e confirme o escopo antes de avançar.
+	- 1.3 Iteração incremental: adicione uma funcionalidade de cada vez, com planejamento e testes.
+	- 1.4 Código completo: não deixe TODOs nem placeholders; tudo deve compilar e passar nos testes.
+	- 1.5 Agnóstico de linguagem: estas regras valem para qualquer stack.
+	- 1.6 Subprojetos: toda nova pasta deve conter seu próprio .mdc com escopo claro.
+
+2. Prevenção de Alucinações e Validação
+	- Verifique APIs e bibliotecas na fonte oficial antes de usar.
+	- Comente trechos críticos com a URL da documentação.
+	- Se não tiver certeza absoluta, declare dúvida ao usuário.
+	- Prefira PoCs funcionais a explicações teóricas.
+
+3. Ciclo de Desenvolvimento e Testes
+	- Pensar → Pseudocódigo → Confirmação → Teste falhando → Código mínimo → Refatoração.
+	- Mantenha /tests na raiz; crie testes de integração quando módulos interagem.
+
+4. Git
+	- Repositório inicial com .gitignore robusto.
+	- Commits atômicos usando Conventional Commits.
+	- Cada feature em branch própria (feature/*).
+
+5. Qualidade de Código
+	- Tratamento de erros robusto, early-return, SRP, DRY.
+	- Tipagem estática sempre que possível; documente APIs com docstrings/JSDoc.
+
+6. Configuração e Dependências
+	- Use variáveis de ambiente para segredos.
+	- Gerencie dependências com o gestor oficial (pip, npm, etc).
+
+7. Regras Específicas
+	- Python assíncrono: from openai import AsyncOpenAI, client.chat.completions.create().
+	- FastAPI: arquivo principal main.py, execute com uvicorn main:app --reload.
+	- Front-end React/Next: Tailwind CSS, dark mode por padrão, handlers handleX.

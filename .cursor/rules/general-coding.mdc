@@ -1,0 +1,30 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+description: Applies general coding rules across all file types to maintain code quality, consistency, and prevent common errors.
+globs: "**/."
+alwaysApply: true
+
+Verifique informações antes de apresentá‑las; nunca suponha sem evidências.
+
+Faça alterações arquivo por arquivo para permitir revisão incremental, preservando estruturas existentes.
+
+Evite usar desculpas ou comentários sobre entendimento em código ou documentação.
+
+Use nomes de variáveis descritivos e explícitos.
+
+Substitua valores hardcoded por constantes nomeadas para clareza e manutenção.
+
+Considere implicações de segurança em todas as modificações.
+
+Implemente tratamento de erros robusto e logging apropriado.
+
+Sugira ou inclua testes unitários para código novo ou alterado.
+
+Aplique princípios de design modular para facilitar manutenção e reutilização.
+
+Garanta compatibilidade com as versões de linguagem ou framework especificadas.
+
+Trate casos de borda e adicione assertivas para validar premissas.
