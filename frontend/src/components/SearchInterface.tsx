@@ -1,332 +1,187 @@
-import { useState, useCallback, useEffect } from 'react'
-import { invoke } from '@tauri-apps/api/tauri'
-import { Search, Filter, Clock, FileText, Brain, Zap } from 'lucide-react'
-import { SearchType, SearchResponse, HybridSearchResponse, HybridSearchResult, SearchResult } from '../types'
-import SearchResults from './SearchResults'
-import SearchHistory from './SearchHistory'
+import React, { useState } from 'react'
+import { Search, Sparkles, Type, History } from 'lucide-react'
+import GlassButton from './ui/GlassButton'
+import GlassInput from './ui/GlassInput'
+import GlassCard from './ui/GlassCard'
+import { useSearch } from '../hooks/useSearch'
+import '../styles/liquid-glass.css'
 
-export default function SearchInterface() {
+const SearchInterface: React.FC = () => {
   const [query, setQuery] = useState('')
-  const [searchType, setSearchType] = useState<SearchType>('hybrid')
-  const [isSearching, setIsSearching] = useState(false)
-  const [results, setResults] = useState<(SearchResult | HybridSearchResult)[]>([])
-  const [searchTime, setSearchTime] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [suggestions, setSuggestions] = useState<string[]>([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const [searchHistory, setSearchHistory] = useState<string[]>([])
+  const [searchType, setSearchType] = useState<'text' | 'semantic' | 'hybrid'>('hybrid')
+  const { search, isLoading, results } = useSearch()
 
-  // Configurações de busca híbrida
-  const [textWeight, setTextWeight] = useState(0.7)
-  const [semanticWeight, setSemanticWeight] = useState(0.3)
-  const [resultLimit, setResultLimit] = useState(50)
-
-  // Buscar sugestões enquanto digita
-  useEffect(() => {
-    const fetchSuggestions = async () => {
-      if (query.length < 2) {
-        setSuggestions([])
-        return
-      }
-
-      try {
-        const suggs = await invoke<string[]>('get_search_suggestions', {
-          partial_query: query,
-          limit: 5
-        })
-        setSuggestions(suggs)
-      } catch (error) {
-        console.error('Erro ao buscar sugestões:', error)
-      }
-    }
-
-    const debounceTimer = setTimeout(fetchSuggestions, 300)
-    return () => clearTimeout(debounceTimer)
-  }, [query])
-
-  const performSearch = useCallback(async (searchQuery: string, type: SearchType) => {
-    if (!searchQuery.trim()) return
-
-    setIsSearching(true)
-    setError(null)
-    setResults([])
-    setSearchTime(null)
-
+  const handleSearch = async () => {
+    if (!query.trim()) return
+    
     try {
-      let response: SearchResponse | HybridSearchResponse
-
-      switch (type) {
-        case 'text':
-          response = await invoke<SearchResponse>('search_text', {
-            query: searchQuery,
-            limit: resultLimit
-          })
-          setResults(response.results)
-          break
-
-        case 'semantic':
-          response = await invoke<HybridSearchResponse>('search_semantic', {
-            query: searchQuery,
-            limit: resultLimit
-          })
-          setResults(response.results)
-          break
-
-        case 'hybrid':
-          response = await invoke<HybridSearchResponse>('search_hybrid', {
-            query: searchQuery,
-            limit: resultLimit,
-            text_weight: textWeight,
-            semantic_weight: semanticWeight
-          })
-          setResults(response.results)
-          break
-      }
-
-      setSearchTime(response.search_time_ms)
-      
-      // Adicionar à história de busca
-      setSearchHistory(prev => {
-        const newHistory = [searchQuery, ...prev.filter(q => q !== searchQuery)]
-        return newHistory.slice(0, 10) // Manter apenas as últimas 10 buscas
-      })
+      await search(query, searchType)
     } catch (error) {
       console.error('Erro na busca:', error)
-      setError(error as string)
-    } finally {
-      setIsSearching(false)
-      setShowSuggestions(false)
     }
-  }, [resultLimit, textWeight, semanticWeight])
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    performSearch(query, searchType)
   }
 
-  const handleSuggestionClick = (suggestion: string) => {
-    setQuery(suggestion)
-    performSearch(suggestion, searchType)
-  }
-
-  const handleHistoryClick = (historicalQuery: string) => {
-    setQuery(historicalQuery)
-    performSearch(historicalQuery, searchType)
-  }
-
-  const clearSearch = () => {
-    setQuery('')
-    setResults([])
-    setSearchTime(null)
-    setError(null)
-    setSuggestions([])
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSearch()
+    }
   }
 
   return (
-    <div className="space-y-6">
-      {/* Formulário de Busca */}
-      <div className="card p-6">
-        <form onSubmit={handleSearch} className="space-y-4">
-          {/* Campo de Busca */}
-          <div className="relative">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value)
-                  setShowSuggestions(true)
-                }}
-                onFocus={() => setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                placeholder="Digite sua busca..."
-                className="input pl-10 pr-4 text-lg"
-                disabled={isSearching}
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={clearSearch}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-200"
-                >
-                  ✕
-                </button>
-              )}
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Card Principal de Busca */}
+      <GlassCard variant="primary" size="lg" hoverable={false}>
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="flex items-center gap-4">
+            <div className="p-3 rounded-xl bg-electric-blue/20">
+              <Search className="w-6 h-6 text-electric-blue" />
             </div>
-
-            {/* Sugestões */}
-            {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-lg z-10">
-                {suggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    className="block w-full text-left px-4 py-2 hover:bg-slate-700 transition-colors"
-                  >
-                    <Search className="inline-block w-4 h-4 mr-2 text-slate-400" />
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div>
+              <h2 className="text-title font-semibold gradient-text">
+                Busca Inteligente
+              </h2>
+              <p className="text-caption text-secondary mt-1">
+                Encontre qualquer coisa em seu histórico de digitação
+              </p>
+            </div>
           </div>
 
-          {/* Controles de Busca */}
-          <div className="flex items-center space-x-4">
-            {/* Tipo de Busca */}
-            <div className="flex items-center space-x-2">
-              <label className="text-sm text-slate-400">Tipo:</label>
-              <div className="flex space-x-1">
-                <button
-                  type="button"
-                  onClick={() => setSearchType('text')}
-                  className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                    searchType === 'text'
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
-                  title="Busca textual (FTS5)"
-                >
-                  <FileText className="inline-block w-4 h-4 mr-1" />
-                  Textual
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSearchType('semantic')}
-                  className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                    searchType === 'semantic'
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
-                  title="Busca semântica (embeddings)"
-                >
-                  <Brain className="inline-block w-4 h-4 mr-1" />
-                  Semântica
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSearchType('hybrid')}
-                  className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                    searchType === 'hybrid'
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
-                  title="Busca híbrida (textual + semântica)"
-                >
-                  <Zap className="inline-block w-4 h-4 mr-1" />
-                  Híbrida
-                </button>
-              </div>
-            </div>
+          {/* Input de Busca */}
+          <div className="space-y-4">
+            <GlassInput
+              icon={Search}
+              placeholder="Digite para buscar em seu histórico..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyPress={handleKeyPress}
+              className="text-lg"
+              containerClassName="w-full"
+            />
 
-            {/* Configurações de Busca Híbrida */}
-            {searchType === 'hybrid' && (
-              <div className="flex items-center space-x-4 text-sm">
-                <div className="flex items-center space-x-2">
-                  <label className="text-slate-400">Peso Textual:</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={textWeight}
-                    onChange={(e) => {
-                      const value = parseFloat(e.target.value)
-                      setTextWeight(value)
-                      setSemanticWeight(1 - value)
-                    }}
-                    className="w-20"
-                  />
-                  <span className="text-slate-300">{(textWeight * 100).toFixed(0)}%</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <label className="text-slate-400">Peso Semântico:</label>
-                  <span className="text-slate-300">{(semanticWeight * 100).toFixed(0)}%</span>
-                </div>
-              </div>
-            )}
-
-            {/* Limite de Resultados */}
-            <div className="flex items-center space-x-2 text-sm">
-              <label className="text-slate-400">Limite:</label>
-              <select
-                value={resultLimit}
-                onChange={(e) => setResultLimit(parseInt(e.target.value))}
-                className="bg-slate-700 text-slate-300 rounded px-2 py-1"
+            {/* Tipos de Busca */}
+            <div className="flex flex-wrap gap-3">
+              <GlassButton
+                variant={searchType === 'text' ? 'primary' : 'secondary'}
+                size="sm"
+                icon={Type}
+                onClick={() => setSearchType('text')}
               >
-                <option value="10">10</option>
-                <option value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-              </select>
+                Busca Textual
+              </GlassButton>
+              
+              <GlassButton
+                variant={searchType === 'semantic' ? 'primary' : 'secondary'}
+                size="sm"
+                icon={Sparkles}
+                onClick={() => setSearchType('semantic')}
+              >
+                Busca Semântica
+              </GlassButton>
+              
+              <GlassButton
+                variant={searchType === 'hybrid' ? 'success' : 'secondary'}
+                size="sm"
+                icon={Search}
+                onClick={() => setSearchType('hybrid')}
+              >
+                Busca Híbrida
+              </GlassButton>
             </div>
 
             {/* Botão de Busca */}
-            <button
-              type="submit"
-              disabled={isSearching || !query.trim()}
-              className="btn-primary px-6 py-2 ml-auto"
-            >
-              {isSearching ? (
-                <>
-                  <div className="loading-spinner w-4 h-4 mr-2"></div>
-                  Buscando...
-                </>
-              ) : (
-                <>
-                  <Search className="w-4 h-4 mr-2" />
-                  Buscar
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-
-        {/* Estatísticas da Busca */}
-        {searchTime !== null && (
-          <div className="mt-4 pt-4 border-t border-slate-700 flex items-center justify-between text-sm">
-            <div className="flex items-center space-x-4">
-              <span className="text-slate-400">
-                {results.length} resultado{results.length !== 1 ? 's' : ''} encontrado{results.length !== 1 ? 's' : ''}
-              </span>
-              <span className="text-slate-400">
-                <Clock className="inline-block w-4 h-4 mr-1" />
-                {searchTime}ms
-              </span>
+            <div className="flex justify-end">
+              <GlassButton
+                onClick={handleSearch}
+                loading={isLoading}
+                disabled={!query.trim()}
+                size="lg"
+                className="min-w-32"
+              >
+                {isLoading ? 'Buscando...' : 'Buscar'}
+              </GlassButton>
             </div>
-            {searchType === 'hybrid' && (
-              <span className="text-slate-400">
-                Busca híbrida: {(textWeight * 100).toFixed(0)}% textual + {(semanticWeight * 100).toFixed(0)}% semântica
-              </span>
-            )}
           </div>
-        )}
+        </div>
+      </GlassCard>
 
-        {/* Erro */}
-        {error && (
-          <div className="mt-4 p-4 bg-red-900/20 border border-red-700 rounded-lg text-red-400">
-            {error}
+      {/* Dicas de Busca */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <GlassCard size="sm" hoverable={false}>
+          <div className="text-center space-y-2">
+            <Type className="w-8 h-8 text-electric-blue mx-auto" />
+            <h3 className="text-body font-medium">Busca Textual</h3>
+            <p className="text-small text-secondary">
+              Encontra correspondências exatas de palavras e frases
+            </p>
           </div>
-        )}
+        </GlassCard>
+
+        <GlassCard size="sm" hoverable={false}>
+          <div className="text-center space-y-2">
+            <Sparkles className="w-8 h-8 text-mint-green mx-auto" />
+            <h3 className="text-body font-medium">Busca Semântica</h3>
+            <p className="text-small text-secondary">
+              Entende o significado e contexto da sua busca
+            </p>
+          </div>
+        </GlassCard>
+
+        <GlassCard size="sm" hoverable={false}>
+          <div className="text-center space-y-2">
+            <Search className="w-8 h-8 text-electric-blue mx-auto" />
+            <h3 className="text-body font-medium">Busca Híbrida</h3>
+            <p className="text-small text-secondary">
+              Combina ambas as técnicas para melhores resultados
+            </p>
+          </div>
+        </GlassCard>
       </div>
 
-      {/* Histórico de Busca */}
-      {searchHistory.length > 0 && !isSearching && results.length === 0 && (
-        <SearchHistory 
-          history={searchHistory} 
-          onHistoryClick={handleHistoryClick}
-        />
-      )}
+      {/* Busca Rápida */}
+      <GlassCard hoverable={false}>
+        <div className="flex items-center gap-3 mb-4">
+          <History className="w-5 h-5 text-secondary" />
+          <h3 className="text-heading font-medium">Buscas Rápidas</h3>
+        </div>
+        
+        <div className="flex flex-wrap gap-2">
+          {[
+            'senhas salvas',
+            'emails importantes',
+            'código Python',
+            'reunião ontem',
+            'projeto keyai',
+            'documentos PDF'
+          ].map((suggestion) => (
+            <button
+              key={suggestion}
+              onClick={() => setQuery(suggestion)}
+              className="px-3 py-1 text-small rounded-full bg-white/5 hover:bg-white/10 
+                         text-secondary hover:text-primary transition-all duration-200
+                         border border-white/10 hover:border-white/20"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      </GlassCard>
 
-      {/* Resultados da Busca */}
-      {results.length > 0 && (
-        <SearchResults 
-          results={results} 
-          searchType={searchType}
-        />
+      {/* Estatísticas Rápidas */}
+      {!isLoading && !results.length && query && (
+        <GlassCard variant="default" hoverable={false}>
+          <div className="text-center space-y-2">
+            <Search className="w-12 h-12 text-secondary mx-auto opacity-50" />
+            <h3 className="text-heading">Nenhum resultado encontrado</h3>
+            <p className="text-caption text-secondary">
+              Tente usar palavras-chave diferentes ou verifique a ortografia
+            </p>
+          </div>
+        </GlassCard>
       )}
     </div>
   )
-} 
+}
+
+export default SearchInterface 
