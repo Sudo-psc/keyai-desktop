@@ -8,10 +8,6 @@ repository = "https://github.com/keyai/keyai-desktop"
 edition = "2021"
 rust-version = "1.78"
 
-[lib]
-name = "keyai_desktop"
-path = "src/lib.rs"
-
 [[bin]]
 name = "keyai-desktop"
 path = "src/main.rs"
@@ -25,21 +21,12 @@ serde_json = "1.0"
 # Input capture
 rdev = "0.5.3"
 
-# Database
-rusqlite = { version = "0.31", features = ["bundled-sqlcipher", "vtab", "functions"] }
-
-# Embeddings and ML - Temporariamente comentadas para testes
-# rust-bert = "0.21"
-# candle-core = "0.6"
-# candle-nn = "0.6"
-# candle-transformers = "0.6"
-
 # Async runtime
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.35", features = ["full", "macros", "test-util"] }
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 # Error handling
 anyhow = "1.0"
@@ -47,6 +34,9 @@ thiserror = "1.0"
 
 # Regex for PII masking
 regex = "1.10"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher", "vtab", "functions"] }
 
 # Crypto
 sha2 = "0.10"
@@ -58,9 +48,27 @@ chrono = { version = "0.4", features = ["serde"] }
 # Configuration
 config = "0.14"
 
+# Window detection - multiplataforma
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "processthreadsapi", "psapi", "handleapi"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+core-graphics = "0.23"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11 = { version = "2.21", features = ["xlib", "xtest"] }
+
+# Embeddings and ML - Temporariamente comentadas para testes
+# rust-bert = "0.21"
+# candle-core = "0.6"
+# candle-nn = "0.6"
+# candle-transformers = "0.6"
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-tempfile = "3.0"
+tempfile = "3.8"
+tokio = { version = "1.0", features = ["full", "test-util", "macros"] }
 
 [[bench]]
 name = "search_benchmark"

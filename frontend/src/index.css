@@ -4,7 +4,7 @@
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-slate-700;
   }
   
   body {
@@ -15,35 +15,35 @@
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background;
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none;
   }
   
   .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700;
+    @apply btn bg-blue-600 text-white hover:bg-blue-700;
   }
   
   .btn-secondary {
-    @apply btn bg-secondary-600 text-white hover:bg-secondary-700;
+    @apply btn bg-slate-600 text-white hover:bg-slate-700;
   }
   
   .btn-ghost {
-    @apply btn hover:bg-secondary-800 hover:text-secondary-100;
+    @apply btn hover:bg-slate-800 hover:text-slate-100;
   }
   
   .input {
-    @apply flex h-10 w-full rounded-md border border-secondary-700 bg-secondary-800 px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-secondary-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply flex h-10 w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
   }
   
   .card {
-    @apply rounded-lg border border-secondary-700 bg-secondary-800 text-card-foreground shadow-sm;
+    @apply rounded-lg border border-slate-600 bg-slate-800 text-slate-100 shadow-sm;
   }
   
   .search-result {
-    @apply p-4 border-b border-secondary-700 hover:bg-secondary-700 transition-colors cursor-pointer;
+    @apply p-4 border-b border-slate-600 hover:bg-slate-700 transition-colors cursor-pointer;
   }
   
   .loading-spinner {
-    @apply animate-spin rounded-full border-2 border-secondary-600 border-t-primary-500;
+    @apply animate-spin rounded-full border-2 border-slate-600 border-t-blue-500;
   }
 }
 

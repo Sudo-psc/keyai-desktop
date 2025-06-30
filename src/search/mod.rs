@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use anyhow::{Result, anyhow};
-use tracing::{info, error, debug, warn};
+use anyhow::Result;
+use tracing::{info, debug, warn};
 use serde::{Serialize, Deserialize};
 
 use crate::db::{Database, SearchResult};
@@ -51,7 +51,7 @@ impl EmbeddingModel {
         Ok(Self {})
     }
 
-    fn encode(&self, text: &str) -> Result<Vec<f32>> {
+    fn encode(&self, _text: &str) -> Result<Vec<f32>> {
         // TODO: Implement actual embedding generation
         // For now, return a dummy embedding
         warn!("🚧 Usando embedding dummy - implementar rust-bert");
@@ -209,7 +209,7 @@ impl SearchEngine {
             let semantic_score = rrf_score * options.semantic_weight;
             
             combined_scores.entry(result.id)
-                .and_modify(|(text_score, sem_score, _, _, _)| *sem_score = semantic_score)
+                .and_modify(|(_text_score, sem_score, _, _, _)| *sem_score = semantic_score)
                 .or_insert((0.0, semantic_score, result.content.clone(), result.timestamp, result.context.clone()));
         }
 
@@ -237,24 +237,21 @@ impl SearchEngine {
     }
 
     pub async fn get_search_suggestions(&self, partial_query: &str, limit: usize) -> Result<Vec<String>> {
-        debug!("💡 Gerando sugestões para: {}", partial_query);
-        
-        // Simple implementation - get most common words/phrases
-        // In production, this could be more sophisticated
-        let query = format!("{}*", partial_query);
-        let results = self.database.search_text(&query, limit * 2).await?;
-        
-        let mut suggestions = Vec::new();
-        for result in results.iter().take(limit) {
-            if !result.content.is_empty() {
-                suggestions.push(result.content.clone());
+        // Implementação básica usando busca textual
+        match self.database.search_text(partial_query, limit).await {
+            Ok(results) => {
+                let suggestions: Vec<String> = results
+                    .into_iter()
+                    .map(|r| r.content)
+                    .take(limit)
+                    .collect();
+                Ok(suggestions)
+            },
+            Err(e) => {
+                warn!("Erro ao gerar sugestões: {}", e);
+                Ok(vec![])
             }
         }
-        
-        suggestions.dedup();
-        suggestions.truncate(limit);
-        
-        Ok(suggestions)
     }
 
     pub async fn get_popular_searches(&self, limit: usize) -> Result<Vec<String>> {
@@ -282,6 +279,8 @@ impl SearchEngine {
         info!("✅ Índices de busca otimizados");
         Ok(())
     }
+
+
 }
 
 #[cfg(test)]

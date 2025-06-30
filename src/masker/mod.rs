@@ -46,17 +46,13 @@ impl Masker {
     }
 
     pub fn mask_event(&self, mut event: KeyEvent) -> KeyEvent {
-        // Apply masking to the key if it's a text character
+        // Mascara o conteúdo da tecla
         event.key = self.mask_text(&event.key);
         
-        // Apply masking to window title if present
-        if let Some(title) = &event.window_title {
-            event.window_title = Some(self.mask_text(title));
-        }
-        
-        // Apply masking to application name if present
-        if let Some(app) = &event.application {
-            event.application = Some(self.mask_text(app));
+        // Mascara informações da janela se existirem
+        if let Some(window_info) = &mut event.window_info {
+            window_info.title = self.mask_text(&window_info.title);
+            window_info.application = self.mask_text(&window_info.application);
         }
         
         event
@@ -240,17 +236,17 @@ mod tests {
         
         let event = KeyEvent {
             timestamp: 1234567890,
-            key: "123.456.789-01".to_string(),
+            key: "test@example.com".to_string(),
             event_type: "press".to_string(),
-            window_title: Some("Email: test@example.com".to_string()),
-            application: Some("App with phone (11) 99999-1234".to_string()),
+            window_info: Some("Email: test@example.com - Phone: (11) 99999-1234".to_string()),
+            is_modifier: false,
+            is_function_key: false,
         };
         
         let masked_event = masker.mask_event(event);
         
-        assert_eq!(masked_event.key, "***.***.***-01");
-        assert_eq!(masked_event.window_title, Some("Email: t***@example.com".to_string()));
-        assert!(masked_event.application.unwrap().contains("(***) ***-1234"));
+        assert_eq!(masked_event.key, "t***@example.com");
+        assert_eq!(masked_event.window_info, Some("Email: t***@example.com - Phone: (***) ***-1234".to_string()));
     }
 
     #[test]

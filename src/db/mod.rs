@@ -1,9 +1,9 @@
 use std::path::Path;
 use std::sync::Arc;
-use rusqlite::{Connection, Result as SqliteResult, params};
+use rusqlite::{Connection, params};
 use tokio::sync::Mutex;
-use anyhow::{Result, anyhow};
-use tracing::{info, error, debug};
+use anyhow::Result;
+use tracing::{info, debug};
 use serde::{Serialize, Deserialize};
 
 use crate::agent::KeyEvent;
@@ -48,10 +48,11 @@ impl Database {
         let conn = Connection::open(db_path)?;
         
         // Set SQLCipher password (in production, this should come from secure storage)
-        conn.execute("PRAGMA key = 'keyai-desktop-secret-key'", [])?;
+        // Temporarily disabled for debugging - uncomment when SQLCipher is properly configured
+        // conn.execute("PRAGMA key = 'keyai-desktop-secret-key'", [])?;
         
         // Enable WAL mode for better concurrency
-        conn.execute("PRAGMA journal_mode = WAL", [])?;
+        let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
         
         // Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -178,6 +179,12 @@ impl Database {
                 None
             };
 
+            let (window_title, application) = if let Some(ref window_info) = event.window_info {
+                (Some(window_info.title.clone()), Some(window_info.application.clone()))
+            } else {
+                (None, None)
+            };
+
             tx.execute(
                 "INSERT OR IGNORE INTO events 
                 (timestamp, key, event_type, window_title, application, text_content)
@@ -186,8 +193,8 @@ impl Database {
                     event.timestamp,
                     event.key,
                     event.event_type,
-                    event.window_title,
-                    event.application,
+                    window_title,
+                    application,
                     text_content
                 ],
             )?;
@@ -357,6 +364,16 @@ impl Database {
         info!("🧹 Banco de dados otimizado (VACUUM executado)");
         Ok(())
     }
+
+    /// Otimiza os índices FTS5
+    pub async fn optimize_fts_index(&self) -> Result<()> {
+        let conn = self.connection.lock().await;
+        
+        conn.execute("INSERT INTO text_search(text_search) VALUES('optimize')", [])?;
+        info!("✅ Índices FTS5 otimizados");
+        
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -383,45 +400,77 @@ mod tests {
                 timestamp: 1000,
                 key: "h".to_string(),
                 event_type: "press".to_string(),
-                window_title: Some("Test Window".to_string()),
-                application: Some("Test App".to_string()),
+                window_info: Some(crate::agent::WindowInfo {
+                    title: "Test Window".to_string(),
+                    application: "Test App".to_string(),
+                    process_id: None,
+                    timestamp: 1000,
+                }),
+                is_modifier: false,
+                is_function_key: false,
             },
             KeyEvent {
                 timestamp: 1001,
                 key: "e".to_string(),
                 event_type: "press".to_string(),
-                window_title: Some("Test Window".to_string()),
-                application: Some("Test App".to_string()),
+                window_info: Some(crate::agent::WindowInfo {
+                    title: "Test Window".to_string(),
+                    application: "Test App".to_string(),
+                    process_id: None,
+                    timestamp: 1001,
+                }),
+                is_modifier: false,
+                is_function_key: false,
             },
             KeyEvent {
                 timestamp: 1002,
                 key: "l".to_string(),
                 event_type: "press".to_string(),
-                window_title: Some("Test Window".to_string()),
-                application: Some("Test App".to_string()),
+                window_info: Some(crate::agent::WindowInfo {
+                    title: "Test Window".to_string(),
+                    application: "Test App".to_string(),
+                    process_id: None,
+                    timestamp: 1002,
+                }),
+                is_modifier: false,
+                is_function_key: false,
             },
             KeyEvent {
                 timestamp: 1003,
                 key: "l".to_string(),
                 event_type: "press".to_string(),
-                window_title: Some("Test Window".to_string()),
-                application: Some("Test App".to_string()),
+                window_info: Some(crate::agent::WindowInfo {
+                    title: "Test Window".to_string(),
+                    application: "Test App".to_string(),
+                    process_id: None,
+                    timestamp: 1003,
+                }),
+                is_modifier: false,
+                is_function_key: false,
             },
             KeyEvent {
                 timestamp: 1004,
                 key: "o".to_string(),
                 event_type: "press".to_string(),
-                window_title: Some("Test Window".to_string()),
-                application: Some("Test App".to_string()),
+                window_info: Some(crate::agent::WindowInfo {
+                    title: "Test Window".to_string(),
+                    application: "Test App".to_string(),
+                    process_id: None,
+                    timestamp: 1004,
+                }),
+                is_modifier: false,
+                is_function_key: false,
             },
         ];
-
-        db.store_events(&events).await.unwrap();
         
-        let stats = db.get_stats().await.unwrap();
-        assert_eq!(stats.total_events, 5);
-        assert_eq!(stats.oldest_event, Some(1000));
-        assert_eq!(stats.newest_event, Some(1004));
+        for event in events {
+            db.store_events(&[event]).await.unwrap();
+        }
+        
+        // Test search
+        let results = db.search_text("hello", 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].content.contains("hello"));
     }
 
     #[tokio::test]
@@ -434,22 +483,25 @@ mod tests {
                 timestamp: 1000,
                 key: "a".to_string(),
                 event_type: "press".to_string(),
-                window_title: None,
-                application: None,
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
             },
             KeyEvent {
                 timestamp: 2000,
                 key: "b".to_string(),
                 event_type: "press".to_string(),
-                window_title: None,
-                application: None,
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
             },
             KeyEvent {
                 timestamp: 3000,
                 key: "c".to_string(),
                 event_type: "press".to_string(),
-                window_title: None,
-                application: None,
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
             },
         ];
 
@@ -475,8 +527,9 @@ mod tests {
                 timestamp: 1000,
                 key: "test".to_string(),
                 event_type: "press".to_string(),
-                window_title: None,
-                application: None,
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
             },
         ];
 
@@ -505,8 +558,9 @@ mod tests {
                 timestamp: 1000,
                 key: "test".to_string(),
                 event_type: "press".to_string(),
-                window_title: None,
-                application: None,
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
             },
         ];
         db.store_events(&events).await.unwrap();
@@ -539,8 +593,9 @@ mod tests {
             timestamp: 1000,
             key: "a".to_string(),
             event_type: "press".to_string(),
-            window_title: None,
-            application: None,
+            window_info: None,
+            is_modifier: false,
+            is_function_key: false,
         };
         
         // Store same event twice
@@ -575,8 +630,9 @@ mod tests {
                 timestamp: 1000,
                 key: "test".to_string(),
                 event_type: "press".to_string(),
-                window_title: None,
-                application: None,
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
             },
         ];
         db.store_events(&events).await.unwrap();
@@ -594,5 +650,112 @@ mod tests {
         // Try to get embedding for non-existent event
         let result = db.get_embedding(999).await.unwrap();
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_text_search() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).await.unwrap();
+        
+        // Store events that form words
+        let events = vec![
+            KeyEvent {
+                timestamp: 1000,
+                key: "t".to_string(),
+                event_type: "press".to_string(),
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
+            },
+            KeyEvent {
+                timestamp: 1001,
+                key: "e".to_string(),
+                event_type: "press".to_string(),
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
+            },
+            KeyEvent {
+                timestamp: 1002,
+                key: "s".to_string(),
+                event_type: "press".to_string(),
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
+            },
+            KeyEvent {
+                timestamp: 1003,
+                key: "t".to_string(),
+                event_type: "press".to_string(),
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
+            },
+        ];
+        
+        for event in events {
+            db.store_events(&[event]).await.unwrap();
+        }
+        
+        // Search for "test"
+        let results = db.search_text("test", 10).await.unwrap();
+        assert!(!results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_stats() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).await.unwrap();
+        
+        // Store some events
+        for i in 0..5 {
+            let event = KeyEvent {
+                timestamp: i as i64,
+                key: format!("key{}", i),
+                event_type: "press".to_string(),
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
+            };
+            db.store_events(&[event]).await.unwrap();
+        }
+        
+        let stats = db.get_stats().await.unwrap();
+        assert_eq!(stats.total_events, 5);
+        assert_eq!(stats.oldest_event, Some(0));
+        assert_eq!(stats.newest_event, Some(4));
+    }
+
+    #[tokio::test]
+    async fn test_special_keys() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).await.unwrap();
+        
+        // Store special key events
+        let events = vec![
+            KeyEvent {
+                timestamp: 1000,
+                key: "Space".to_string(),
+                event_type: "press".to_string(),
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
+            },
+            KeyEvent {
+                timestamp: 1001,
+                key: "Return".to_string(),
+                event_type: "press".to_string(),
+                window_info: None,
+                is_modifier: false,
+                is_function_key: false,
+            },
+        ];
+        
+        for event in events {
+            db.store_events(&[event]).await.unwrap();
+        }
+        
+        let stats = db.get_stats().await.unwrap();
+        assert_eq!(stats.total_events, 2);
     }
 } 

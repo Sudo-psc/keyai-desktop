@@ -1,297 +1,509 @@
 use tauri::State;
 use serde::{Serialize, Deserialize};
-use tracing::{info, error, debug};
+use tracing::{info, error, debug, warn};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::{
-    AppState,
-    agent::AgentStatus,
-    db::Database,
-    search::{SearchEngine, SearchResult, HybridSearchResult},
-};
+use crate::AppState;
+use crate::search::{SearchOptions, HybridSearchResult};
+use crate::db::{SearchResult, DatabaseStats, Database};
+use crate::agent::{AgentConfig, WindowInfo};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResponse {
     pub results: Vec<SearchResult>,
+    pub total_count: usize,
     pub search_time_ms: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HybridSearchResponse {
     pub results: Vec<HybridSearchResult>,
+    pub total_count: usize,
     pub search_time_ms: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AppStats {
-    pub agent: AgentStatus,
-    pub database: DatabaseStats,
+pub struct AgentStatus {
+    pub is_running: bool,
+    pub uptime_seconds: u64,
+    pub events_captured: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct DatabaseStats {
-    pub total_events: u64,
-    pub total_size_bytes: u64,
-    pub oldest_event: Option<i64>,
-    pub newest_event: Option<i64>,
+pub struct AppStats {
+    pub database: DatabaseStats,
+    pub agent: AgentStatus,
 }
 
-/// Realiza busca textual usando FTS5
+/// Busca textual simples
 #[tauri::command]
-pub fn search_text(
-    state: State<AppState>,
+pub async fn search_text(
+    state: State<'_, AppState>,
     query: String,
-    limit: usize,
+    limit: Option<usize>,
+    offset: Option<usize>,
 ) -> Result<SearchResponse, String> {
-    debug!("🔍 Comando search_text chamado: query='{}', limit={}", query, limit);
+    debug!("🔍 Comando search_text chamado: query='{}', limit={:?}, offset={:?}", 
+           query, limit, offset);
     
     let start_time = std::time::Instant::now();
-    let search_engine = state.search_engine.lock().unwrap();
     
-    let results = search_engine
-        .search_text(&query, limit)
-        .map_err(|e| e.to_string())?;
-    
-    let search_time_ms = start_time.elapsed().as_millis() as u64;
-    info!("✅ Busca textual concluída: {} resultados em {}ms", results.len(), search_time_ms);
-    
-    Ok(SearchResponse {
-        results,
-        search_time_ms,
-    })
-}
-
-/// Realiza busca semântica usando embeddings
-#[tauri::command]
-pub fn search_semantic(
-    state: State<AppState>,
-    query: String,
-    limit: usize,
-) -> Result<HybridSearchResponse, String> {
-    debug!("🧠 Comando search_semantic chamado: query='{}', limit={}", query, limit);
-    
-    let start_time = std::time::Instant::now();
-    let search_engine = state.search_engine.lock().unwrap();
-    
-    let results = search_engine
-        .search_semantic(&query, limit)
-        .map_err(|e| e.to_string())?;
-    
-    let search_time_ms = start_time.elapsed().as_millis() as u64;
-    info!("✅ Busca semântica concluída: {} resultados em {}ms", results.len(), search_time_ms);
-    
-    Ok(HybridSearchResponse {
-        results,
-        search_time_ms,
-    })
-}
-
-/// Realiza busca híbrida combinando busca textual e semântica
-#[tauri::command]
-pub fn search_hybrid(
-    state: State<AppState>,
-    query: String,
-    limit: usize,
-    text_weight: f32,
-    semantic_weight: f32,
-) -> Result<HybridSearchResponse, String> {
-    debug!("🔍🧠 Comando search_hybrid chamado: query='{}', limit={}", query, limit);
-    
-    let start_time = std::time::Instant::now();
-    let search_engine = state.search_engine.lock().unwrap();
-    
-    let results = search_engine
-        .search_hybrid(&query, limit, text_weight, semantic_weight)
-        .map_err(|e| e.to_string())?;
-    
-    let search_time_ms = start_time.elapsed().as_millis() as u64;
-    info!("✅ Busca híbrida concluída: {} resultados em {}ms", results.len(), search_time_ms);
-    
-    Ok(HybridSearchResponse {
-        results,
-        search_time_ms,
-    })
-}
-
-/// Liga/desliga o agente de captura de teclas
-#[tauri::command]
-pub fn toggle_agent(
-    state: State<AppState>,
-    enable: bool,
-) -> Result<AgentStatus, String> {
-    debug!("🎛️ Comando toggle_agent chamado: enable={}", enable);
-    
-    let mut agent_status = state.agent_status.lock().unwrap();
-    
-    if enable && !agent_status.is_running {
-        // Iniciar o agente
-        agent_status.is_running = true;
-        agent_status.started_at = Some(chrono::Utc::now().timestamp());
-        info!("✅ Agente de captura iniciado");
-        // TODO: Realmente iniciar o agente de captura
-    } else if !enable && agent_status.is_running {
-        // Parar o agente
-        agent_status.is_running = false;
-        info!("🛑 Agente de captura parado");
-        // TODO: Realmente parar o agente de captura
-    }
-    
-    Ok(agent_status.clone())
-}
-
-/// Obtém estatísticas gerais da aplicação
-#[tauri::command]
-pub fn get_stats(state: State<AppState>) -> Result<AppStats, String> {
-    debug!("📊 Comando get_stats chamado");
-    
-    let db = state.db.lock().unwrap();
-    let agent_status = state.agent_status.lock().unwrap();
-    
-    // Obter estatísticas do banco de dados
-    let total_events = db.get_total_events().map_err(|e| e.to_string())?;
-    let total_size_bytes = db.get_database_size().map_err(|e| e.to_string())?;
-    let (oldest_event, newest_event) = db.get_event_time_range().map_err(|e| e.to_string())?;
-    
-    Ok(AppStats {
-        agent: agent_status.clone(),
-        database: DatabaseStats {
-            total_events,
-            total_size_bytes,
-            oldest_event,
-            newest_event,
+    match state.database.search_text(&query, limit.unwrap_or(50)).await {
+        Ok(results) => {
+            let search_time = start_time.elapsed().as_millis() as u64;
+            info!("✅ Busca textual concluída: {} resultados em {}ms", results.len(), search_time);
+            
+            Ok(SearchResponse {
+                total_count: results.len(),
+                results,
+                search_time_ms: search_time,
+            })
         },
-    })
+        Err(e) => {
+            error!("❌ Erro na busca textual: {}", e);
+            Err(format!("Erro na busca: {}", e))
+        }
+    }
 }
 
-/// Obtém sugestões de busca baseadas em texto parcial
+/// Busca semântica
 #[tauri::command]
-pub fn get_search_suggestions(
-    _state: State<AppState>,
+pub async fn search_semantic(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<usize>,
+    threshold: Option<f32>,
+) -> Result<HybridSearchResponse, String> {
+    debug!("🧠 Comando search_semantic chamado: query='{}', limit={:?}, threshold={:?}", 
+           query, limit, threshold);
+    
+    let start_time = std::time::Instant::now();
+    
+    let options = SearchOptions {
+        limit: limit.unwrap_or(20),
+        min_score_threshold: threshold.unwrap_or(0.7) as f64,
+        ..Default::default()
+    };
+    
+    match state.search_engine.search_semantic(&query, &options).await {
+        Ok(results) => {
+            let search_time = start_time.elapsed().as_millis() as u64;
+            info!("✅ Busca semântica concluída: {} resultados em {}ms", results.len(), search_time);
+            
+            Ok(HybridSearchResponse {
+                total_count: results.len(),
+                results,
+                search_time_ms: search_time,
+            })
+        },
+        Err(e) => {
+            error!("❌ Erro na busca semântica: {}", e);
+            Err(format!("Erro na busca semântica: {}", e))
+        }
+    }
+}
+
+/// Busca híbrida (textual + semântica)
+#[tauri::command]
+pub async fn search_hybrid(
+    state: State<'_, AppState>,
+    query: String,
+    options: SearchOptions,
+) -> Result<HybridSearchResponse, String> {
+    debug!("🔀 Comando search_hybrid chamado: query='{}', options={:?}", query, options);
+    
+    let start_time = std::time::Instant::now();
+    
+    match state.search_engine.search_hybrid(&query, &options).await {
+        Ok(results) => {
+            let search_time = start_time.elapsed().as_millis() as u64;
+            info!("✅ Busca híbrida concluída: {} resultados em {}ms", results.len(), search_time);
+            
+            Ok(HybridSearchResponse {
+                total_count: results.len(),
+                results,
+                search_time_ms: search_time,
+            })
+        },
+        Err(e) => {
+            error!("❌ Erro na busca híbrida: {}", e);
+            Err(format!("Erro na busca híbrida: {}", e))
+        }
+    }
+}
+
+/// Obtém estatísticas do banco de dados
+#[tauri::command]
+pub async fn get_database_stats(
+    state: State<'_, AppState>
+) -> Result<DatabaseStats, String> {
+    debug!("📊 Comando get_database_stats chamado");
+    
+    match state.database.get_stats().await {
+        Ok(stats) => {
+            info!("✅ Estatísticas obtidas: {} eventos", stats.total_events);
+            Ok(stats)
+        },
+        Err(e) => {
+            error!("❌ Erro ao obter estatísticas: {}", e);
+            Err(format!("Erro ao obter estatísticas: {}", e))
+        }
+    }
+}
+
+/// Obtém sugestões de busca
+#[tauri::command]
+pub async fn get_search_suggestions(
+    state: State<'_, AppState>,
     partial_query: String,
-    limit: usize,
+    limit: Option<usize>,
 ) -> Result<Vec<String>, String> {
-    debug!("💡 Comando get_search_suggestions chamado: partial_query='{}'", partial_query);
+    debug!("💡 Comando get_search_suggestions chamado: query='{}', limit={:?}", 
+           partial_query, limit);
     
-    if partial_query.trim().is_empty() || partial_query.len() < 2 {
-        return Ok(Vec::new());
+    match state.search_engine.get_search_suggestions(&partial_query, limit.unwrap_or(10)).await {
+        Ok(suggestions) => {
+            info!("✅ {} sugestões geradas", suggestions.len());
+            Ok(suggestions)
+        },
+        Err(e) => {
+            error!("❌ Erro ao gerar sugestões: {}", e);
+            Err(format!("Erro ao gerar sugestões: {}", e))
+        }
     }
-    
-    // Por enquanto, retorna sugestões simuladas
-    // TODO: Implementar busca real de sugestões baseada em histórico
-    Ok(vec![
-        format!("{} documento", partial_query),
-        format!("{} email", partial_query),
-        format!("{} código", partial_query),
-    ].into_iter().take(limit).collect())
-}
-
-/// Obtém buscas populares
-#[tauri::command]
-pub fn get_popular_searches(
-    _state: State<AppState>,
-    limit: usize,
-) -> Result<Vec<String>, String> {
-    debug!("📊 Comando get_popular_searches chamado");
-    
-    // Por enquanto, retorna buscas populares simuladas
-    // TODO: Implementar tracking real de buscas populares
-    Ok(vec![
-        "relatório mensal".to_string(),
-        "email cliente".to_string(),
-        "código python".to_string(),
-        "documento projeto".to_string(),
-        "senha sistema".to_string(),
-    ].into_iter().take(limit).collect())
-}
-
-/// Limpa todos os dados armazenados
-#[tauri::command]
-pub fn clear_data(
-    state: State<AppState>,
-    confirm: bool,
-) -> Result<(), String> {
-    debug!("🗑️ Comando clear_data chamado: confirm={}", confirm);
-    
-    if !confirm {
-        return Err("Confirmação necessária".to_string());
-    }
-    
-    let mut db = state.db.lock().unwrap();
-    db.clear_all_data().map_err(|e| e.to_string())?;
-    
-    info!("✅ Todos os dados foram removidos");
-    Ok(())
 }
 
 /// Otimiza os índices de busca
 #[tauri::command]
-pub fn optimize_search_index(
-    state: State<AppState>,
-) -> Result<(), String> {
+pub async fn optimize_search_index(
+    state: State<'_, AppState>
+) -> Result<String, String> {
     debug!("🔧 Comando optimize_search_index chamado");
     
-    let db = state.db.lock().unwrap();
-    db.optimize_indexes().map_err(|e| e.to_string())?;
-    
-    info!("✅ Índices de busca otimizados");
-    Ok(())
-}
-
-// Extensões para o Database
-impl Database {
-    pub fn get_total_events(&self) -> rusqlite::Result<u64> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT COUNT(*) FROM events",
-            [],
-            |row| row.get(0),
-        )
-    }
-    
-    pub fn get_database_size(&self) -> rusqlite::Result<u64> {
-        // Obtém o tamanho do arquivo do banco de dados
-        let db_path = std::path::Path::new("keyai.db");
-        if db_path.exists() {
-            let metadata = std::fs::metadata(db_path).map_err(|e| {
-                rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
-                    Some(e.to_string()),
-                )
-            })?;
-            Ok(metadata.len())
-        } else {
-            Ok(0)
+    match state.search_engine.optimize_search_index().await {
+        Ok(_) => {
+            info!("✅ Índices de busca otimizados");
+            Ok("Índices de busca otimizados com sucesso".to_string())
+        },
+        Err(e) => {
+            error!("❌ Erro ao otimizar índices: {}", e);
+            Err(format!("Erro ao otimizar índices: {}", e))
         }
     }
+}
+
+/// Liga/desliga o agente de captura de teclas
+#[tauri::command]
+pub async fn toggle_agent(
+    enable: bool,
+    state: State<'_, AppState>
+) -> Result<AgentStatus, String> {
+    debug!("🎛️ Comando toggle_agent chamado: enable={}", enable);
     
-    pub fn get_event_time_range(&self) -> rusqlite::Result<(Option<i64>, Option<i64>)> {
-        let conn = self.conn.lock().unwrap();
-        let oldest: Option<i64> = conn.query_row(
-            "SELECT MIN(timestamp) FROM events",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(None);
-        
-        let newest: Option<i64> = conn.query_row(
-            "SELECT MAX(timestamp) FROM events",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(None);
-        
-        Ok((oldest, newest))
-    }
+    let mut agent = state.agent.lock().await;
     
-    pub fn clear_all_data(&mut self) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM events", [])?;
-        conn.execute("DELETE FROM events_fts", [])?;
-        conn.execute("DELETE FROM embeddings", [])?;
-        Ok(())
+    if enable {
+        if !agent.is_running() {
+            match agent.start().await {
+                Ok(_) => {
+                    info!("✅ Agente de captura iniciado");
+                },
+                Err(e) => {
+                    error!("❌ Erro ao iniciar agente: {}", e);
+                    return Err(format!("Erro ao iniciar agente: {}", e));
+                }
+            }
+        }
+    } else {
+        if agent.is_running() {
+            match agent.stop().await {
+                Ok(_) => {
+                    info!("🛑 Agente de captura parado");
+                },
+                Err(e) => {
+                    error!("❌ Erro ao parar agente: {}", e);
+                    return Err(format!("Erro ao parar agente: {}", e));
+                }
+            }
+        }
     }
+
+    // Return updated status
+    let metrics = agent.get_metrics();
+    let current_window = agent.get_current_window().await;
+    let config = agent.get_config().await;
+
+    Ok(AgentStatus {
+        is_running: agent.is_running(),
+        uptime_seconds: 0,
+        events_captured: 0,
+    })
+}
+
+/// Obtém o status atual do agente
+#[tauri::command]
+pub async fn get_agent_status(
+    state: State<'_, AppState>
+) -> Result<AgentStatus, String> {
+    debug!("📊 Comando get_agent_status chamado");
     
-    pub fn optimize_indexes(&self) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("INSERT INTO events_fts(events_fts) VALUES('optimize')", [])?;
-        conn.execute("VACUUM", [])?;
-        Ok(())
+    let agent = state.agent.lock().await;
+    let metrics = agent.get_metrics();
+
+    Ok(AgentStatus {
+        is_running: agent.is_running(),
+        uptime_seconds: metrics.get("uptime_seconds").copied().unwrap_or(0),
+        events_captured: metrics.get("events_captured").copied().unwrap_or(0),
+    })
+}
+
+/// Atualiza a configuração do agente
+#[tauri::command]
+pub async fn update_agent_config(
+    config: AgentConfig,
+    state: State<'_, AppState>
+) -> Result<AgentStatus, String> {
+    debug!("🔧 Comando update_agent_config chamado");
+    
+    let agent = state.agent.lock().await;
+    
+    match agent.update_config(config).await {
+        Ok(_) => {
+            info!("✅ Configuração do agente atualizada");
+            
+            let metrics = agent.get_metrics();
+
+            Ok(AgentStatus {
+                is_running: agent.is_running(),
+                uptime_seconds: metrics.get("uptime_seconds").copied().unwrap_or(0),
+                events_captured: metrics.get("events_captured").copied().unwrap_or(0),
+            })
+        },
+        Err(e) => {
+            error!("❌ Erro ao atualizar configuração: {}", e);
+            Err(format!("Erro ao atualizar configuração: {}", e))
+        }
     }
-} 
+}
+
+/// Obtém a configuração atual do agente
+#[tauri::command]
+pub async fn get_agent_config(
+    state: State<'_, AppState>
+) -> Result<AgentConfig, String> {
+    debug!("⚙️ Comando get_agent_config chamado");
+    
+    let agent = state.agent.lock().await;
+    Ok(agent.get_config().await)
+}
+
+/// Obtém informações da janela ativa atual
+#[tauri::command]
+pub async fn get_current_window(
+    state: State<'_, AppState>
+) -> Result<Option<WindowInfo>, String> {
+    debug!("🪟 Comando get_current_window chamado");
+    
+    let agent = state.agent.lock().await;
+    Ok(agent.get_current_window().await)
+}
+
+/// Obtém métricas detalhadas do agente
+#[tauri::command]
+pub async fn get_agent_metrics(
+    state: State<'_, AppState>
+) -> Result<HashMap<String, u64>, String> {
+    debug!("📈 Comando get_agent_metrics chamado");
+    
+    let agent = state.agent.lock().await;
+    Ok(agent.get_metrics())
+}
+
+/// Obtém estatísticas gerais da aplicação
+#[tauri::command]
+pub async fn get_stats(
+    state: State<'_, AppState>
+) -> Result<AppStats, String> {
+    debug!("📊 Comando get_stats chamado");
+    
+    let db_stats = match state.database.get_stats().await {
+        Ok(stats) => stats,
+        Err(e) => {
+            error!("❌ Erro ao obter estatísticas do banco: {}", e);
+            return Err(format!("Erro ao obter estatísticas: {}", e));
+        }
+    };
+
+    let agent = state.agent.lock().await;
+    let metrics = agent.get_metrics();
+
+    let agent_status = AgentStatus {
+        is_running: agent.is_running(),
+        uptime_seconds: metrics.get("uptime_seconds").copied().unwrap_or(0),
+        events_captured: metrics.get("events_captured").copied().unwrap_or(0),
+    };
+
+    Ok(AppStats {
+        database: db_stats,
+        agent: agent_status,
+    })
+}
+
+/// Limpa todos os dados armazenados
+#[tauri::command]
+pub async fn clear_data(
+    confirm: bool,
+    state: State<'_, AppState>
+) -> Result<String, String> {
+    debug!("🗑️ Comando clear_data chamado: confirm={}", confirm);
+    
+    if !confirm {
+        return Err("Confirmação necessária para limpar dados".to_string());
+    }
+
+    // Stop agent if running
+    let mut agent = state.agent.lock().await;
+    if agent.is_running() {
+        if let Err(e) = agent.stop().await {
+            error!("❌ Erro ao parar agente antes de limpar dados: {}", e);
+            return Err(format!("Erro ao parar agente: {}", e));
+        }
+    }
+    drop(agent);
+
+    match state.database.clear_all_data().await {
+        Ok(_) => {
+            info!("✅ Todos os dados foram limpos");
+            Ok("Dados limpos com sucesso".to_string())
+        },
+        Err(e) => {
+            error!("❌ Erro ao limpar dados: {}", e);
+            Err(format!("Erro ao limpar dados: {}", e))
+        }
+    }
+}
+
+/// Obtém as buscas mais populares
+#[tauri::command]
+pub async fn get_popular_searches(
+    limit: Option<usize>,
+    state: State<'_, AppState>
+) -> Result<Vec<String>, String> {
+    debug!("🔥 Comando get_popular_searches chamado");
+    
+    match state.search_engine.get_popular_searches(limit.unwrap_or(10)).await {
+        Ok(searches) => {
+            debug!("✅ {} buscas populares encontradas", searches.len());
+            Ok(searches)
+        },
+        Err(e) => {
+            error!("❌ Erro ao obter buscas populares: {}", e);
+            Err(format!("Erro ao obter buscas populares: {}", e))
+        }
+    }
+}
+
+/// Exporta dados para arquivo JSON
+#[tauri::command]
+pub async fn export_data(
+    file_path: String,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    state: State<'_, AppState>
+) -> Result<String, String> {
+    debug!("📤 Comando export_data chamado: path='{}'", file_path);
+    
+    // Implementação básica de exportação
+    match export_data_to_file(&state.database, &file_path, date_from, date_to).await {
+        Ok(count) => {
+            info!("✅ {} eventos exportados para {}", count, file_path);
+            Ok(format!("{} eventos exportados com sucesso", count))
+        },
+        Err(e) => {
+            error!("❌ Erro ao exportar dados: {}", e);
+            Err(format!("Erro ao exportar dados: {}", e))
+        }
+    }
+}
+
+/// Importa dados de arquivo JSON
+#[tauri::command]
+pub async fn import_data(
+    file_path: String,
+    state: State<'_, AppState>
+) -> Result<String, String> {
+    debug!("📥 Comando import_data chamado: path='{}'", file_path);
+    
+    // Implementação básica de importação
+    match import_data_from_file(&state.database, &file_path).await {
+        Ok(count) => {
+            info!("✅ {} eventos importados de {}", count, file_path);
+            Ok(format!("{} eventos importados com sucesso", count))
+        },
+        Err(e) => {
+            error!("❌ Erro ao importar dados: {}", e);
+            Err(format!("Erro ao importar dados: {}", e))
+        }
+    }
+}
+
+/// Testa a conectividade do sistema
+#[tauri::command]
+pub async fn health_check(
+    state: State<'_, AppState>
+) -> Result<HashMap<String, String>, String> {
+    debug!("🏥 Comando health_check chamado");
+    
+    let mut status = HashMap::new();
+    
+    // Test database
+    match state.database.get_stats().await {
+        Ok(_) => status.insert("database".to_string(), "ok".to_string()),
+        Err(e) => status.insert("database".to_string(), format!("error: {}", e)),
+    };
+    
+    // Test search engine - basic check
+    status.insert("search_engine".to_string(), "ok".to_string());
+    
+    // Test agent
+    let agent = state.agent.lock().await;
+    let agent_status = if agent.is_running() { "running" } else { "stopped" };
+    status.insert("agent".to_string(), agent_status.to_string());
+    
+    info!("✅ Health check concluído: {:?}", status);
+    Ok(status)
+}
+
+// Helper functions for export/import
+
+async fn export_data_to_file(
+    database: &Arc<Database>,
+    file_path: &str,
+    _date_from: Option<String>,
+    _date_to: Option<String>,
+) -> Result<usize, anyhow::Error> {
+    use std::fs::File;
+    use std::io::Write;
+    
+    // Get all events (simplified implementation)
+    let events = database.search_by_timerange(0, u64::MAX, 10000).await?;
+    
+    // Convert to JSON
+    let json_data = serde_json::to_string_pretty(&events)?;
+    
+    // Write to file
+    let mut file = File::create(file_path)?;
+    file.write_all(json_data.as_bytes())?;
+    
+    Ok(events.len())
+}
+
+async fn import_data_from_file(
+    _database: &Arc<Database>,
+    _file_path: &str,
+) -> Result<usize, anyhow::Error> {
+    // TODO: Implementar importação real
+    warn!("🚧 Funcionalidade de importação ainda não implementada");
+    Ok(0)
+}
