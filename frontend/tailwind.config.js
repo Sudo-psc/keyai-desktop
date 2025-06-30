@@ -7,6 +7,12 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Liquid Glass Design Colors
+        'charcoal': '#1C1C1E',
+        'electric-blue': '#007AFF',
+        'mint-green': '#00C781',
+        'gray-light': '#8E8E93',
+        // Original colors preserved
         primary: {
           50: '#f0f9ff',
           100: '#e0f2fe',
@@ -36,11 +42,22 @@ export default {
           950: '#020617',
         }
       },
+      backdropBlur: {
+        xs: '2px',
+        sm: '4px',
+        DEFAULT: '8px',
+        md: '12px',
+        lg: '16px',
+        xl: '24px',
+        '2xl': '40px',
+      },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-in-out',
         'slide-up': 'slideUp 0.3s ease-out',
         'spin-slow': 'spin 2s linear infinite',
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'shimmer': 'shimmer 2s linear infinite',
+        'glow': 'glow 2s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -50,11 +67,19 @@ export default {
         slideUp: {
           '0%': { transform: 'translateY(10px)', opacity: '0' },
           '100%': { transform: 'translateY(0)', opacity: '1' },
-        }
+        },
+        shimmer: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+        glow: {
+          '0%, 100%': { opacity: '0.5' },
+          '50%': { opacity: '0.8' },
+        },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['Fira Code', 'Consolas', 'monospace'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Display', 'SF Pro Text', 'Inter', 'system-ui', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        mono: ['SF Mono', 'Fira Code', 'Consolas', 'Monaco', 'monospace'],
       },
     },
   },
