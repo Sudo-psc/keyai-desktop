@@ -450,7 +450,7 @@ impl Agent {
                     if should_update {
                         debug!("🪟 Janela ativa: {} - {}", window_info.application, window_info.title);
                         *current = Some(window_info);
-                        metrics.events_discarded.fetch_add(1, Ordering::Relaxed);
+                        // Window changes are legitimate updates, not discarded events
                     }
                 }
             }

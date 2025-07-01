@@ -164,8 +164,11 @@ impl SearchEngine {
             }
         }
 
-        // Sort by semantic score
-        semantic_results.sort_by(|a, b| b.semantic_score.partial_cmp(&a.semantic_score).unwrap());
+        // Sort by semantic score (handle potential NaN values safely)
+        semantic_results.sort_by(|a, b| {
+            b.semantic_score.partial_cmp(&a.semantic_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         semantic_results.truncate(options.limit);
 
         debug!("🧠 Busca semântica retornou {} resultados", semantic_results.len());
@@ -230,7 +233,10 @@ impl SearchEngine {
             .filter(|result| result.combined_score >= options.min_score_threshold)
             .collect();
 
-        final_results.sort_by(|a, b| b.combined_score.partial_cmp(&a.combined_score).unwrap());
+        final_results.sort_by(|a, b| {
+            b.combined_score.partial_cmp(&a.combined_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         final_results.truncate(options.limit);
 
         final_results
