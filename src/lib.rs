@@ -21,12 +21,24 @@ impl AppState {
         let database = Arc::new(db::Database::new(db_path).await?);
         let search_engine = Arc::new(search::SearchEngine::new(database.clone()).await?);
         let masker = masker::Masker::new();
-        let agent = Arc::new(Mutex::new(agent::Agent::new(masker, database.clone()).await?));
+        let agent = Arc::new(Mutex::new(agent::Agent::new_safe(masker, database.clone()).await?));
         
         Ok(Self {
             database,
             search_engine,
             agent,
         })
+    }
+
+    pub async fn new_fallback() -> Self {
+        let database = Arc::new(db::Database::new_in_memory().await.unwrap());
+        let search_engine = Arc::new(search::SearchEngine::new_fallback(database.clone()));
+        let agent = Arc::new(Mutex::new(agent::Agent::new_disabled(database.clone())));
+        
+        Self {
+            database,
+            search_engine,
+            agent,
+        }
     }
 } 

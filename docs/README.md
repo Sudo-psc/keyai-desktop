@@ -136,4 +136,7 @@ R: Sim, seguindo a licença MIT do projeto.
 
 **💡 Dica**: Mantenha esta documentação como favorito para acesso rápido a todas as informações do projeto!
 
-**🔄 Última atualização**: Janeiro 2024 | **📝 Versão**: 1.0.0 
+**🔄 Última atualização**: Janeiro 2024 | **📝 Versão**: 1.0.0
+
+![Build Status](https://github.com/Sudo-psc/keyai-desktop/workflows/CI/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg) 

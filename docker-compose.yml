@@ -1,0 +1,282 @@
+version: '3.8'
+
+services:
+  # API Gateway - Kong
+  kong-database:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kongpass
+      POSTGRES_DB: kong
+    volumes:
+      - kong-db-data:/var/lib/postgresql/data
+    networks:
+      - keyai-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kong"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kong-migrations:
+    image: kong:3.4-alpine
+    command: kong migrations bootstrap
+    depends_on:
+      kong-database:
+        condition: service_healthy
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kongpass
+    networks:
+      - keyai-network
+
+  kong:
+    image: kong:3.4-alpine
+    depends_on:
+      - kong-migrations
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kongpass
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+    ports:
+      - "8000:8000"  # Proxy
+      - "8001:8001"  # Admin API
+    networks:
+      - keyai-network
+    volumes:
+      - ./docker/kong.yml:/kong/declarative/kong.yml:ro
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # Storage Service Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: keyai
+      POSTGRES_PASSWORD: keyaipass
+      POSTGRES_DB: keyai
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - keyai-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keyai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Cache Layer
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - keyai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Message Broker
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: keyai
+      RABBITMQ_DEFAULT_PASS: keyaipass
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - keyai-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Agent Service
+  agent-service:
+    build:
+      context: ./services/agent-service
+      dockerfile: Dockerfile
+    environment:
+      SERVICE_NAME: agent-service
+      SERVICE_PORT: 3001
+      RABBITMQ_URL: amqp://keyai:keyaipass@rabbitmq:5672
+      RUST_LOG: info
+    depends_on:
+      - rabbitmq
+    networks:
+      - keyai-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  # Masker Service
+  masker-service:
+    build:
+      context: ./services/masker-service
+      dockerfile: Dockerfile
+    environment:
+      SERVICE_NAME: masker-service
+      SERVICE_PORT: 3002
+      RABBITMQ_URL: amqp://keyai:keyaipass@rabbitmq:5672
+      RUST_LOG: info
+    depends_on:
+      - rabbitmq
+    networks:
+      - keyai-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  # Storage Service
+  storage-service:
+    build:
+      context: ./services/storage-service
+      dockerfile: Dockerfile
+    environment:
+      SERVICE_NAME: storage-service
+      SERVICE_PORT: 3003
+      DATABASE_URL: postgres://keyai:keyaipass@postgres:5432/keyai
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - keyai-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  # Search Service
+  search-service:
+    build:
+      context: ./services/search-service
+      dockerfile: Dockerfile
+    environment:
+      SERVICE_NAME: search-service
+      SERVICE_PORT: 3004
+      DATABASE_URL: postgres://keyai:keyaipass@postgres:5432/keyai
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - keyai-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  # Auth Service (Nova adição)
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    environment:
+      SERVICE_NAME: auth-service
+      SERVICE_PORT: 3005
+      DATABASE_URL: postgres://keyai:keyaipass@postgres:5432/keyai
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-me}
+      RUST_LOG: info
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - keyai-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  # Observability Stack
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - keyai-network
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3000:3000"
+    networks:
+      - keyai-network
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"  # UI
+      - "14268:14268"
+      - "14250:14250"
+      - "9411:9411"
+    networks:
+      - keyai-network
+
+networks:
+  keyai-network:
+    driver: bridge
+
+volumes:
+  kong-db-data:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data: 

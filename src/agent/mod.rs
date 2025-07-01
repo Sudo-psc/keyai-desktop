@@ -172,34 +172,75 @@ impl Agent {
         {
             info!("🔍 Verificando permissões de acessibilidade no macOS...");
             
-            // Tentativa simples de verificar se temos permissões
-            // Vamos tentar capturar um evento de teste
-            let test_result = std::panic::catch_unwind(|| {
-                // Teste rápido para ver se o rdev funciona
-                let (tx, _rx) = std::sync::mpsc::channel();
+            // Adicionar diagnóstico detalhado
+            info!("🔧 Iniciando diagnóstico de permissões TCC...");
+            
+            // Verificar se estamos rodando em Terminal ou app bundle
+            if let Ok(bundle_path) = std::env::current_exe() {
+                info!("📦 Executando de: {:?}", bundle_path);
                 
-                // Timeout muito curto para teste
-                let start = std::time::Instant::now();
-                std::thread::spawn(move || {
-                    if let Err(_) = rdev::listen(move |event| {
-                        let _ = tx.send(event);
+                // Verificar se é um .app bundle
+                let is_app_bundle = bundle_path.to_string_lossy().contains(".app/");
+                info!("🎯 É app bundle: {}", is_app_bundle);
+            }
+            
+            // Verificar variáveis de ambiente relevantes
+            if let Ok(term_program) = std::env::var("TERM_PROGRAM") {
+                info!("🖥️ Terminal: {}", term_program);
+            }
+            
+            // Tentativa de verificação com timeout mais longo
+            let test_result = std::panic::catch_unwind(|| {
+                use std::sync::mpsc;
+                let (tx, rx) = mpsc::channel();
+                
+                info!("🧪 Testando captura de eventos com timeout de 500ms...");
+                
+                // Thread de teste com timeout
+                let test_thread = std::thread::spawn(move || {
+                    match rdev::listen(move |event| {
+                        info!("✅ Evento de teste capturado: {:?}", event.event_type);
+                        let _ = tx.send(true);
                     }) {
-                        // Erro esperado se não houver permissões
+                        Ok(()) => {
+                            info!("✅ rdev::listen retornou OK");
+                        }
+                        Err(e) => {
+                            error!("❌ rdev::listen erro: {:?}", e);
+                        }
                     }
                 });
                 
-                // Aguarda um pouco para ver se há erro imediato
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                start.elapsed() < std::time::Duration::from_millis(200)
+                // Aguardar resultado ou timeout
+                match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                    Ok(_) => {
+                        info!("✅ Teste de permissão bem-sucedido");
+                        true
+                    }
+                    Err(e) => {
+                        warn!("⏱️ Timeout no teste de permissão: {:?}", e);
+                        
+                        // Verificar se a thread ainda está rodando
+                        if !test_thread.is_finished() {
+                            warn!("⚠️ Thread de teste ainda em execução - possível bloqueio TCC");
+                        }
+                        false
+                    }
+                }
             });
             
             match test_result {
-                Ok(_) => {
-                    info!("✅ Permissões de acessibilidade parecem estar OK");
-                    true
+                Ok(has_permission) => {
+                    if has_permission {
+                        info!("✅ Permissões de acessibilidade verificadas com sucesso");
+                    } else {
+                        error!("❌ Permissões de acessibilidade não concedidas ou bloqueadas");
+                        Self::show_macos_permission_dialog();
+                    }
+                    has_permission
                 },
-                Err(_) => {
-                    error!("❌ Erro ao verificar permissões - provavelmente sem acesso de acessibilidade");
+                Err(e) => {
+                    error!("❌ Panic durante verificação de permissões: {:?}", e);
                     Self::show_macos_permission_dialog();
                     false
                 }
@@ -255,6 +296,13 @@ impl Agent {
         // Check permissions first
         if !Self::check_permissions() {
             return Err(anyhow!("Permissões insuficientes para captura de teclas"));
+        }
+        
+        // WORKAROUND: Delay estratégico para dar tempo ao TCC processar permissões
+        #[cfg(target_os = "macos")]
+        {
+            info!("⏳ Aguardando 1s para TCC processar permissões...");
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
         
         // Reset shutdown signal
@@ -466,47 +514,116 @@ impl Agent {
         let current_window = self.current_window.clone();
         let shutdown_signal = self.shutdown_signal.clone();
 
-                // Para macOS, usamos uma abordagem mais cautelosa
+        // Para macOS, usamos uma abordagem mais cautelosa
         #[cfg(target_os = "macos")]
         {
             info!("🎯 Iniciando listener de teclas para macOS...");
             
-            // Simplificado para evitar problemas com catch_unwind
-            std::thread::spawn(move || {
-                info!("🔍 Tentando iniciar captura de teclas no macOS...");
-                
-                match listen(move |event| {
-                    if shutdown_signal.load(Ordering::Relaxed) {
-                        return;
-                    }
-
-                    if let Err(e) = Self::handle_rdev_event(event, &tx, &current_window) {
-                        error!("❌ Erro ao processar evento: {}", e);
-                    }
-                }) {
-                    Ok(()) => {
-                        info!("✅ Listener de teclas macOS finalizado normalmente");
-                    }
-                    Err(e) => {
-                        error!("❌ Erro no listener de teclas macOS: {:?}", e);
-                        error!("🚨 PERMISSÕES NECESSÁRIAS NO MACOS:");
-                        error!("   1. Vá para Configurações do Sistema > Privacidade e Segurança");
-                        error!("   2. Clique em 'Acessibilidade' na barra lateral");
-                        error!("   3. Adicione 'Terminal' ou 'KeyAI Desktop' à lista de apps permitidos");
-                        error!("   4. Reinicie o aplicativo após conceder as permissões");
+            // Canal para comunicação de erros da thread
+            let (error_tx, error_rx) = std::sync::mpsc::channel::<String>();
+            let (started_tx, started_rx) = std::sync::mpsc::channel::<bool>();
+            
+            // Clone para mover para a thread
+            let error_tx_clone = error_tx.clone();
+            let started_tx_clone = started_tx.clone();
+            
+            // Spawn thread com panic handler customizado
+            let listener_thread = std::thread::Builder::new()
+                .name("keyai-listener".to_string())
+                .spawn(move || {
+                    // Configurar panic handler para esta thread
+                    let original_hook = std::panic::take_hook();
+                    std::panic::set_hook(Box::new(move |panic_info| {
+                        error!("🚨 PANIC no listener de teclas: {:?}", panic_info);
+                        if let Some(location) = panic_info.location() {
+                            error!("📍 Local do panic: {}:{}", location.file(), location.line());
+                        }
                         
-                        // Tentar abrir as configurações
-                        let _ = std::process::Command::new("open")
-                            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-                            .spawn();
+                        // Tentar enviar erro antes de panic
+                        let _ = error_tx_clone.send(format!("Panic: {:?}", panic_info));
+                        
+                        // Chamar hook original
+                        original_hook(panic_info);
+                    }));
+                    
+                    info!("🔍 Thread do listener iniciada, tentando captura...");
+                    
+                    // Enviar sinal de que a thread iniciou
+                    let _ = started_tx_clone.send(true);
+                    
+                    // Executar o listener diretamente (panic handler já configurado)
+                    match listen(move |event| {
+                        if shutdown_signal.load(Ordering::Relaxed) {
+                            error!("🛑 Shutdown solicitado, parando listener");
+                            return;
+                        }
+
+                        if let Err(e) = Self::handle_rdev_event(event, &tx, &current_window) {
+                            error!("❌ Erro ao processar evento: {}", e);
+                        }
+                    }) {
+                        Ok(()) => {
+                            info!("✅ Listener de teclas macOS finalizado normalmente");
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Erro no rdev::listen: {:?}", e);
+                            error!("❌ {}", error_msg);
+                            
+                            // Verificar tipo específico de erro
+                            if error_msg.contains("permission") || error_msg.contains("accessibility") {
+                                error!("🚨 ERRO DE PERMISSÃO DETECTADO");
+                                error!("   Execute: tccutil reset Accessibility com.keyai.desktop");
+                                error!("   E conceda permissões novamente em:");
+                                error!("   Configurações > Privacidade > Acessibilidade");
+                            }
+                            
+                            let _ = error_tx.send(error_msg);
+                        }
                     }
+                })
+                .map_err(|e| anyhow!("Falha ao criar thread do listener: {}", e))?;
+            
+            // Aguardar confirmação de que a thread iniciou
+            match started_rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                Ok(_) => info!("✅ Thread do listener confirmada como iniciada"),
+                Err(_) => {
+                    error!("❌ Timeout aguardando início da thread do listener");
+                    return Err(anyhow!("Thread do listener não iniciou em tempo hábil"));
                 }
-            });
+            }
+            
+            // Verificar erros imediatos (dar tempo para TCC bloquear)
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            
+            match error_rx.try_recv() {
+                Ok(error) => {
+                    error!("❌ Erro detectado no listener: {}", error);
+                    Self::show_macos_permission_dialog();
+                    
+                    // Aguardar thread terminar
+                    let _ = listener_thread.join();
+                    
+                    return Err(anyhow!("Listener falhou: {}", error));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    info!("✅ Nenhum erro imediato detectado, listener parece estar funcionando");
+                }
+                Err(e) => {
+                    warn!("⚠️ Erro ao verificar status do listener: {:?}", e);
+                }
+            }
+            
+            // Salvar handle da thread para gerenciamento futuro
+            // (Nota: em produção, você guardaria isso em algum lugar)
+            std::mem::forget(listener_thread);
+            
+            info!("✅ Listener de teclas macOS iniciado com sucesso");
+            Ok(())
         }
         
-        // Para outras plataformas, usa a implementação original
         #[cfg(not(target_os = "macos"))]
         {
+            // Código original para outras plataformas
             std::thread::spawn(move || {
                 info!("🎯 Iniciando thread de captura de teclas...");
 
@@ -528,9 +645,9 @@ impl Agent {
                     }
                 }
             });
+            
+            Ok(())
         }
-
-        Ok(())
     }
 
     /// Inicia o reporter de métricas
@@ -552,12 +669,62 @@ impl Agent {
         Ok(())
     }
 
-    /// Processa evento do rdev
+    /// Verifica se uma combinação de teclas deve ser filtrada (atalhos de sistema)
+    fn should_filter_key_combination(event: &Event) -> bool {
+        match &event.event_type {
+            EventType::KeyPress(_) | EventType::KeyRelease(_) => {
+                #[cfg(target_os = "macos")]
+                {
+                    // MODO SEGURO TEMPORÁRIO: Filtrar TODOS os eventos de teclado no macOS
+                    // até resolvermos o conflito com APIs do sistema
+                    warn!("🚫 [MODO SEGURO] Filtrando evento de teclado no macOS");
+                    return true;
+                }
+                
+                #[cfg(not(target_os = "macos"))]
+                {
+                    // Para outras plataformas, manter filtros específicos
+                    match &event.event_type {
+                        EventType::KeyPress(key) | EventType::KeyRelease(key) => {
+                            match key {
+                                Key::Num3 | Key::Num4 => {
+                                    warn!("🚫 Filtrando tecla {:?} (screenshot)", key);
+                                    true
+                                },
+                                Key::Space => {
+                                    warn!("🚫 Filtrando Space (Spotlight)");
+                                    true
+                                },
+                                Key::Tab => {
+                                    warn!("🚫 Filtrando Tab (App Switcher)");
+                                    true
+                                },
+                                _ => false,
+                            }
+                        }
+                        _ => false,
+                    }
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Processa eventos do rdev com filtros de segurança
     fn handle_rdev_event(
-        event: Event, 
-        sender: &mpsc::UnboundedSender<KeyEvent>,
-        current_window: &Arc<RwLock<Option<WindowInfo>>>
+        event: Event,
+        tx: &mpsc::UnboundedSender<KeyEvent>,
+        current_window: &Arc<RwLock<Option<WindowInfo>>>,
     ) -> Result<()> {
+        // FILTRO CRÍTICO: Aplicar PRIMEIRO para evitar qualquer processamento
+        if Self::should_filter_key_combination(&event) {
+            // NÃO processar eventos filtrados - return imediato
+            return Ok(());
+        }
+
+        // Log do evento apenas se passou pelo filtro
+        debug!("✅ Evento capturado: {:?}", event.event_type);
+
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| anyhow!("Erro ao obter timestamp: {}", e))?
@@ -590,12 +757,12 @@ impl Agent {
                     is_function_key: Self::is_function_key(key),
                 };
 
-                if let Err(e) = sender.send(key_event) {
+                if let Err(e) = tx.send(key_event) {
                     error!("❌ Erro ao enviar evento: {}", e);
                     return Err(anyhow!("Erro ao enviar evento: {}", e));
                 }
             }
-            _ => {} // Ignore other event types
+            _ => {} // Ignore other event types for now
         }
 
         Ok(())

@@ -1,0 +1,218 @@
+_format_version: "3.0"
+
+services:
+  - name: agent-service
+    url: http://agent-service:8001
+    routes:
+      - name: agent-routes
+        paths:
+          - /api/v1/agent
+        strip_path: false
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+
+  - name: masker-service
+    url: http://masker-service:8002
+    routes:
+      - name: masker-routes
+        paths:
+          - /api/v1/mask
+          - /api/v1/patterns
+          - /api/v1/statistics
+        strip_path: false
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+
+  - name: storage-service
+    url: http://storage-service:8003
+    routes:
+      - name: storage-routes
+        paths:
+          - /api/v1/events
+          - /api/v1/statistics
+          - /api/v1/export
+        strip_path: false
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+
+  - name: search-service
+    url: http://search-service:8004
+    routes:
+      - name: search-routes
+        paths:
+          - /api/v1/search
+        strip_path: false
+        methods:
+          - GET
+          - POST
+          - OPTIONS
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+        - PATCH
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - X-Auth-Token
+        - Authorization
+        - X-Request-ID
+        - X-Trace-ID
+      exposed_headers:
+        - X-Auth-Token
+        - X-Request-ID
+        - X-Trace-ID
+      credentials: true
+      max_age: 3600
+
+  - name: rate-limiting
+    config:
+      minute: 60
+      hour: 1000
+      day: 10000
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false
+
+  - name: request-transformer
+    config:
+      add:
+        headers:
+          - X-Request-ID:$(uuid)
+          - X-Forwarded-Prefix:/api/v1
+
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - X-Response-Time:$(latency)
+          - X-Kong-Upstream-Latency:$(kong_proxy_latency)
+
+  - name: prometheus
+    config:
+      per_consumer: false
+
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 10
+      size_unit: megabytes
+
+  - name: bot-detection
+    config:
+      deny:
+        - "(bot|crawl|spider|scrape)"
+
+  - name: ip-restriction
+    config:
+      allow:
+        - 0.0.0.0/0  # In production, restrict to specific IPs
+
+consumers:
+  - username: keyai-app
+    custom_id: keyai-app-001
+
+  - username: keyai-admin
+    custom_id: keyai-admin-001
+
+basicauth_credentials:
+  - username: keyai-app
+    password: changeme123
+
+  - username: keyai-admin
+    password: admin123changeme
+
+acls:
+  - consumer: keyai-app
+    group: app-users
+
+  - consumer: keyai-admin
+    group: admins
+
+upstreams:
+  - name: agent-service-upstream
+    slots: 100
+    targets:
+      - target: agent-service:8001
+        weight: 100
+    healthchecks:
+      active:
+        healthy:
+          interval: 5
+          successes: 3
+        unhealthy:
+          interval: 5
+          tcp_failures: 3
+        http_path: /health
+        timeout: 2
+
+  - name: masker-service-upstream
+    slots: 100
+    targets:
+      - target: masker-service:8002
+        weight: 100
+    healthchecks:
+      active:
+        healthy:
+          interval: 5
+          successes: 3
+        unhealthy:
+          interval: 5
+          tcp_failures: 3
+        http_path: /health
+        timeout: 2
+
+  - name: storage-service-upstream
+    slots: 100
+    targets:
+      - target: storage-service:8003
+        weight: 100
+    healthchecks:
+      active:
+        healthy:
+          interval: 5
+          successes: 3
+        unhealthy:
+          interval: 5
+          tcp_failures: 3
+        http_path: /health
+        timeout: 2
+
+  - name: search-service-upstream
+    slots: 100
+    targets:
+      - target: search-service:8004
+        weight: 100
+    healthchecks:
+      active:
+        healthy:
+          interval: 5
+          successes: 3
+        unhealthy:
+          interval: 5
+          tcp_failures: 3
+        http_path: /health
+        timeout: 2 

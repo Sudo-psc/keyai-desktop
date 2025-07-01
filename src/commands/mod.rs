@@ -230,9 +230,9 @@ pub async fn toggle_agent(
     }
 
     // Return updated status
-    let metrics = agent.get_metrics();
-    let current_window = agent.get_current_window().await;
-    let config = agent.get_config().await;
+    let _metrics = agent.get_metrics();
+    let _current_window = agent.get_current_window().await;
+    let _config = agent.get_config().await;
 
     Ok(AgentStatus {
         is_running: agent.is_running(),

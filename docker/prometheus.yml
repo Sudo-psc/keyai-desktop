@@ -1,0 +1,80 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'keyai-monitor'
+
+scrape_configs:
+  # Kong Gateway Metrics
+  - job_name: 'kong'
+    static_configs:
+      - targets: ['kong:8001']
+    metrics_path: '/metrics'
+
+  # Agent Service Metrics
+  - job_name: 'agent-service'
+    static_configs:
+      - targets: 
+        - 'agent-service:3001'
+    metrics_path: '/metrics'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+)(?::\d+)?'
+        replacement: '${1}'
+
+  # Masker Service Metrics
+  - job_name: 'masker-service'
+    static_configs:
+      - targets: 
+        - 'masker-service:3002'
+    metrics_path: '/metrics'
+
+  # Storage Service Metrics
+  - job_name: 'storage-service'
+    static_configs:
+      - targets: 
+        - 'storage-service:3003'
+    metrics_path: '/metrics'
+
+  # Search Service Metrics
+  - job_name: 'search-service'
+    static_configs:
+      - targets: 
+        - 'search-service:3004'
+    metrics_path: '/metrics'
+
+  # Auth Service Metrics
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: 
+        - 'auth-service:3005'
+    metrics_path: '/metrics'
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # RabbitMQ Metrics
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+
+  # Node Exporter
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - '/etc/prometheus/rules/*.yml' 
