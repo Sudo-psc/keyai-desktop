@@ -292,19 +292,49 @@ cargo test masker::tests
 
 ## 🚦 CI/CD
 
-O projeto usa GitHub Actions para:
+O projeto possui um sistema completo de CI/CD automatizado com GitHub Actions.
 
-- ✅ Testes automáticos em PRs
-- 🏗️ Build multiplataforma
-- 📦 Releases automáticos
-- 🔐 Assinatura de código
-- 📊 Benchmarks de performance
+### 🔄 Workflows Implementados
 
-### Matriz de Build
+- **CI Completo** - Linting, testes, análise de código
+- **Auto Review** - Revisão automática de PRs com sugestões
+- **Auto Fix** - Correções automáticas via comando `/autofix`
+- **Security** - Análise contínua de vulnerabilidades
+- **Release** - Build e deployment automatizados
+- **Dependabot** - Atualização automática de dependências
+
+### �️ Executar CI Localmente
+
+```bash
+# Linux/macOS
+./scripts/ci-local.sh
+
+# Windows PowerShell
+.\scripts\ci-local.ps1
+```
+
+### 🤖 Comandos em PRs
+
+```bash
+# Em qualquer PR, comente:
+/autofix          # Aplica todas as correções automáticas
+/autofix format   # Apenas formatação
+/autofix clippy   # Apenas correções do Clippy
+```
+
+### 📊 Matriz de Build
 
 - **Windows**: `windows-latest`
-- **macOS**: `macos-latest` (Intel + Apple Silicon)
+- **macOS**: `macos-latest` (Intel + Apple Silicon)  
 - **Linux**: `ubuntu-22.04`
+
+### 📚 Documentação Completa
+
+Veja [docs/CI_CD_DOCUMENTATION.md](docs/CI_CD_DOCUMENTATION.md) para:
+- Configuração detalhada de cada workflow
+- Troubleshooting e debug
+- Métricas e monitoramento
+- Melhores práticas
 
 ## 🐛 Solução de Problemas
 

@@ -1,0 +1,126 @@
+pull_request_rules:
+  # Auto-merge para dependências minor/patch do Dependabot
+  - name: Auto-merge Dependabot minor/patch updates
+    conditions:
+      - author~=^dependabot\[bot\]$
+      - check-success=CI Status
+      - -title~=(major)
+      - "#approved-reviews-by>=1"
+    actions:
+      merge:
+        method: squash
+        commit_message_template: |
+          {{title}} (#{{number}})
+          
+          {{body}}
+      delete_head_branch:
+        force: false
+
+  # Auto-merge para PRs aprovados de correções de formatação
+  - name: Auto-merge formatting fixes
+    conditions:
+      - author=github-actions[bot]
+      - title~=^(style|fix):\s*auto-(format|fix)
+      - check-success=CI Status
+      - "#approved-reviews-by>=1"
+    actions:
+      merge:
+        method: squash
+      delete_head_branch:
+        force: false
+
+  # Label automático baseado em arquivos modificados
+  - name: Automatic labeling - Rust
+    conditions:
+      - files~=\.rs$
+    actions:
+      label:
+        add:
+          - rust
+          - backend
+
+  - name: Automatic labeling - Frontend
+    conditions:
+      - files~=frontend/
+    actions:
+      label:
+        add:
+          - frontend
+          - react
+
+  - name: Automatic labeling - CI/CD
+    conditions:
+      - files~=\.github/
+    actions:
+      label:
+        add:
+          - ci/cd
+          - github-actions
+
+  - name: Automatic labeling - Documentation
+    conditions:
+      - files~=\.md$
+    actions:
+      label:
+        add:
+          - documentation
+
+  # Solicitar review baseado em mudanças
+  - name: Request backend review
+    conditions:
+      - files~=src/
+      - -draft
+    actions:
+      request_reviews:
+        teams:
+          - keyai-backend-team
+
+  - name: Request frontend review
+    conditions:
+      - files~=frontend/
+      - -draft
+    actions:
+      request_reviews:
+        teams:
+          - keyai-frontend-team
+
+  # Conflitos
+  - name: Alert on conflicts
+    conditions:
+      - conflict
+    actions:
+      comment:
+        message: |
+          ⚠️ **Conflitos detectados!**
+          
+          Este PR possui conflitos que precisam ser resolvidos antes do merge.
+          
+          Para resolver:
+          ```bash
+          git fetch upstream
+          git rebase upstream/main
+          # Resolva os conflitos
+          git push --force-with-lease
+          ```
+      label:
+        add:
+          - conflicts
+
+  # PR muito grande
+  - name: Alert on large PR
+    conditions:
+      - "#files>50"
+    actions:
+      comment:
+        message: |
+          📏 **PR muito grande detectado!**
+          
+          Este PR modifica mais de 50 arquivos. Considere dividir em PRs menores para facilitar o review.
+          
+          Dicas:
+          - Divida por funcionalidade
+          - Crie PRs incrementais
+          - Use feature flags se necessário
+      label:
+        add:
+          - large-pr

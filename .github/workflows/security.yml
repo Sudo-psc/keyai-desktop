@@ -1,0 +1,229 @@
+name: Security Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 1'  # Toda segunda-feira à meia-noite
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # Análise de dependências Rust
+  rust-security:
+    name: Rust Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      
+      - name: Run cargo audit
+        run: |
+          cargo audit --json > audit-results.json
+          cargo audit
+      
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-audit-results
+          path: audit-results.json
+      
+      - name: Check for unsafe code
+        run: |
+          cargo install cargo-geiger
+          echo "## 🔒 Análise de Código Unsafe" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cargo geiger --output-format GitHubMarkdown >> $GITHUB_STEP_SUMMARY || echo "Análise concluída com avisos" >> $GITHUB_STEP_SUMMARY
+
+  # Análise de dependências npm
+  npm-security:
+    name: NPM Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+      
+      - name: Run npm audit
+        run: |
+          cd frontend
+          npm audit --json > npm-audit-results.json || true
+          npm audit || true
+      
+      - name: Upload npm audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: frontend/npm-audit-results.json
+
+  # SAST - Análise estática de segurança
+  sast-analysis:
+    name: SAST Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/rust
+            p/typescript
+            p/react
+      
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          languages: 'typescript,rust'
+          queries: security-and-quality
+
+  # Detecção de segredos
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Detect secrets with Trufflehog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+      
+      - name: Detect secrets with Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # Análise de licenças
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Check Rust licenses
+        run: |
+          cargo install cargo-license
+          echo "## 📋 Análise de Licenças Rust" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cargo license --json > rust-licenses.json
+          echo "Total de dependências: $(cargo license | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Licenças encontradas:" >> $GITHUB_STEP_SUMMARY
+          cargo license | cut -d' ' -f3 | sort | uniq -c | sort -rn >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check npm licenses
+        run: |
+          cd frontend
+          npx license-checker --json > npm-licenses.json
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Análise de Licenças NPM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Total de dependências: $(npx license-checker | wc -l)" >> $GITHUB_STEP_SUMMARY
+
+  # Análise de containers (se aplicável)
+  container-security:
+    name: Container Security
+    runs-on: ubuntu-latest
+    if: false  # Ativar quando houver Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Relatório consolidado
+  security-report:
+    name: Security Report
+    needs: [rust-security, npm-security, sast-analysis, secret-scanning, license-check]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: security-artifacts
+      
+      - name: Generate consolidated report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            let report = `# 🔒 Relatório de Segurança\n\n`;
+            report += `**Data:** ${new Date().toLocaleDateString('pt-BR')}\n`;
+            report += `**Branch:** ${context.ref}\n\n`;
+            
+            // Status dos jobs
+            report += `## 📊 Status das Análises\n\n`;
+            report += `| Análise | Status |\n`;
+            report += `|---------|--------|\n`;
+            
+            const jobs = ['rust-security', 'npm-security', 'sast-analysis', 'secret-scanning', 'license-check'];
+            for (const job of jobs) {
+              const status = '${{ needs[job].result }}' || 'N/A';
+              const emoji = status === 'success' ? '✅' : status === 'failure' ? '❌' : '⚠️';
+              report += `| ${job} | ${emoji} ${status} |\n`;
+            }
+            
+            // Adicionar ao resumo
+            core.summary.addRaw(report);
+            await core.summary.write();
+            
+            // Criar issue se houver falhas críticas
+            if (context.eventName === 'schedule' && report.includes('❌')) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🔒 Alerta de Segurança - ${new Date().toLocaleDateString('pt-BR')}`,
+                body: report,
+                labels: ['security', 'automated']
+              });
+            }
