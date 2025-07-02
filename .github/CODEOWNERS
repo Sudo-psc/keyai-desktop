@@ -1,0 +1,37 @@
+# CODEOWNERS - Define responsáveis automáticos para review
+# https://help.github.com/articles/about-codeowners/
+
+# Donos globais - serão requisitados em todos os PRs
+* @keyai-maintainers
+
+# Backend Rust
+/src/ @keyai-backend-team
+/Cargo.toml @keyai-backend-team
+/Cargo.lock @keyai-backend-team
+*.rs @keyai-backend-team
+
+# Frontend React
+/frontend/ @keyai-frontend-team
+*.tsx @keyai-frontend-team
+*.ts @keyai-frontend-team
+*.css @keyai-frontend-team
+
+# CI/CD e DevOps
+/.github/ @keyai-devops-team
+/scripts/ @keyai-devops-team
+*.yml @keyai-devops-team
+*.yaml @keyai-devops-team
+
+# Documentação
+/docs/ @keyai-docs-team
+*.md @keyai-docs-team
+/README.md @keyai-maintainers @keyai-docs-team
+
+# Segurança
+/SECURITY.md @keyai-security-team
+/src/masker/ @keyai-security-team
+/src/db/ @keyai-security-team
+
+# Configurações críticas
+/tauri.conf.json @keyai-maintainers @keyai-security-team
+/.env* @keyai-security-team

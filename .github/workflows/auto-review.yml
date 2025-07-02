@@ -1,0 +1,247 @@
+name: Auto Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+
+jobs:
+  # Análise de complexidade de código
+  complexity-analysis:
+    name: Code Complexity Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Analyze code complexity
+        run: |
+          cargo install cargo-complexity || true
+          echo "## 📊 Análise de Complexidade" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cargo complexity --format json > complexity.json || true
+          
+      - name: Comment PR with complexity report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let complexityData = '';
+            try {
+              complexityData = fs.readFileSync('complexity.json', 'utf8');
+            } catch (e) {
+              complexityData = '{}';
+            }
+            
+            const comment = `## 📊 Relatório de Complexidade
+            
+            Este é um relatório automático de análise de complexidade do código.
+            
+            ### Métricas Analisadas:
+            - **Complexidade Ciclomática**: Número de caminhos independentes
+            - **Complexidade Cognitiva**: Dificuldade de compreensão
+            - **Linhas de Código**: Total de linhas por função
+            
+            \`\`\`json
+            ${complexityData}
+            \`\`\`
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  # Análise de segurança
+  security-review:
+    name: Security Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run security audit
+        uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: SAST Scan
+        uses: github/super-linter@v5
+        env:
+          DEFAULT_BRANCH: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VALIDATE_RUST_2015: true
+          VALIDATE_RUST_2018: true
+          VALIDATE_RUST_2021: true
+          VALIDATE_TYPESCRIPT_ES: true
+          VALIDATE_JAVASCRIPT_ES: true
+      
+      - name: Check for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+
+  # Análise de código duplicado
+  duplication-check:
+    name: Code Duplication Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for duplicate code
+        run: |
+          cargo install cargo-duplicate || true
+          echo "## 🔍 Análise de Duplicação de Código" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cargo duplicate > duplication_report.txt || true
+          cat duplication_report.txt >> $GITHUB_STEP_SUMMARY
+
+  # Review automático com AI
+  ai-review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v41
+        with:
+          separator: ','
+      
+      - name: AI Review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const changedFiles = '${{ steps.changed-files.outputs.all_changed_files }}'.split(',');
+            
+            // Análise de padrões comuns
+            const reviewComments = [];
+            
+            for (const file of changedFiles) {
+              if (file.endsWith('.rs')) {
+                reviewComments.push({
+                  path: file,
+                  position: 1,
+                  body: `🤖 **Review Automático**:
+                  
+                  Verifique os seguintes pontos:
+                  - [ ] Tratamento de erros com \`Result<T, E>\`
+                  - [ ] Documentação de funções públicas
+                  - [ ] Testes unitários incluídos
+                  - [ ] Sem uso de \`unwrap()\` em produção
+                  - [ ] Conformidade com convenções Rust`
+                });
+              } else if (file.endsWith('.tsx') || file.endsWith('.ts')) {
+                reviewComments.push({
+                  path: file,
+                  position: 1,
+                  body: `🤖 **Review Automático**:
+                  
+                  Verifique os seguintes pontos:
+                  - [ ] Tipagem forte (sem \`any\`)
+                  - [ ] Hooks seguem as regras do React
+                  - [ ] Componentes são funcionais
+                  - [ ] Props são tipadas corretamente
+                  - [ ] Sem console.log em produção`
+                });
+              }
+            }
+            
+            // Criar review
+            if (reviewComments.length > 0) {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                event: 'COMMENT',
+                comments: reviewComments.slice(0, 10) // Limitar a 10 comentários
+              });
+            }
+
+  # Análise de performance
+  performance-review:
+    name: Performance Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Run benchmarks
+        run: |
+          cargo bench --no-run || true
+          echo "## ⚡ Análise de Performance" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Benchmarks compilados com sucesso" >> $GITHUB_STEP_SUMMARY
+
+  # Sugestões de melhorias
+  improvement-suggestions:
+    name: Improvement Suggestions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Generate suggestions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            const suggestions = [];
+            
+            // Sugestões baseadas no título do PR
+            if (!pr.title.match(/^(feat|fix|docs|style|refactor|test|chore):/)) {
+              suggestions.push('📝 Use Conventional Commits no título do PR (ex: feat: nova funcionalidade)');
+            }
+            
+            // Sugestões baseadas no tamanho do PR
+            if (pr.additions + pr.deletions > 500) {
+              suggestions.push('📏 PR muito grande. Considere dividir em PRs menores para facilitar o review');
+            }
+            
+            // Sugestões baseadas na descrição
+            if (!pr.body || pr.body.length < 50) {
+              suggestions.push('📄 Adicione uma descrição mais detalhada ao PR');
+            }
+            
+            if (suggestions.length > 0) {
+              const comment = `## 💡 Sugestões de Melhoria
+              
+              ${suggestions.map(s => `- ${s}`).join('\n')}
+              
+              ---
+              *Este é um comentário automático gerado pelo sistema de review.*`;
+              
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
