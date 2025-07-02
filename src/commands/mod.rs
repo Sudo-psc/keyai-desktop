@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::search::{SearchOptions, HybridSearchResult};
-use crate::db::{SearchResult, DatabaseStats, Database};
+use crate::db::{SearchResult, DatabaseStats, Database, StoredEvent};
 use crate::agent::{AgentConfig, WindowInfo};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -500,10 +500,47 @@ async fn export_data_to_file(
 }
 
 async fn import_data_from_file(
-    _database: &Arc<Database>,
-    _file_path: &str,
+    database: &Arc<Database>,
+    file_path: &str,
 ) -> Result<usize, anyhow::Error> {
-    // TODO: Implementar importação real
-    warn!("🚧 Funcionalidade de importação ainda não implementada");
-    Ok(0)
+    use std::fs::File;
+    use std::io::Read;
+    use crate::agent::KeyEvent;
+    
+    // Read and parse JSON file
+    let mut file = File::open(file_path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    
+    // Parse JSON as StoredEvent array and convert to KeyEvent
+    let stored_events: Vec<StoredEvent> = serde_json::from_str(&contents)?;
+    
+    let mut imported_count = 0;
+    for stored_event in stored_events {
+        // Convert StoredEvent back to KeyEvent for storage
+        let key_event = KeyEvent {
+            timestamp: stored_event.timestamp,
+            key: stored_event.key,
+            event_type: stored_event.event_type,
+            window_info: if stored_event.window_title.is_some() || stored_event.application.is_some() {
+                Some(crate::agent::WindowInfo {
+                    title: stored_event.window_title.unwrap_or_default(),
+                    application: stored_event.application.unwrap_or_default(),
+                    process_id: None,
+                    timestamp: stored_event.timestamp,
+                })
+            } else {
+                None
+            },
+            is_modifier: false, // This info is lost in export, could be enhanced
+            is_function_key: false, // This info is lost in export, could be enhanced
+        };
+        
+        // Store individual event (batch processing could be more efficient)
+        database.store_events(&[key_event]).await?;
+        imported_count += 1;
+    }
+    
+    info!("✅ {} eventos importados de {}", imported_count, file_path);
+    Ok(imported_count)
 }
