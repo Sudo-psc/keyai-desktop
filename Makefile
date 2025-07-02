@@ -1,104 +1,165 @@
-.PHONY: help build test up down logs clean migrate lint format check
+# ==============================================================================
+# Makefile para KeyAI Desktop - Arquitetura de Microsserviços
+# ==============================================================================
 
-# Default target
+# Definições de Variáveis
+# ------------------------------------------------------------------------------
+SHELL := /bin/bash
+DOCKER_COMPOSE_DEV = docker-compose -f docker/docker-compose.dev.yml
+DOCKER_COMPOSE_PROD = docker-compose -f docker/docker-compose.prod.yml
+
+SERVICES = capture-service masking-service storage-service search-service analytics-service
+LIBS = common-lib proto-lib
+
+# Ajuda
+# ------------------------------------------------------------------------------
+.PHONY: help
 help:
-	@echo "KeyAI Microservices - Available Commands:"
-	@echo "  make build         - Build all services"
-	@echo "  make test          - Run all tests"
-	@echo "  make up            - Start all services with docker-compose"
-	@echo "  make down          - Stop all services"
-	@echo "  make logs          - Show logs from all services"
-	@echo "  make clean         - Clean build artifacts"
-	@echo "  make migrate       - Run database migrations"
-	@echo "  make lint          - Run linters"
-	@echo "  make format        - Format code"
-	@echo "  make check         - Run pre-commit checks"
-	@echo "  make dev           - Run in development mode"
-	@echo "  make prod          - Run in production mode"
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Targets:"
+	@echo "  setup         - Instala todas as dependências do projeto"
+	@echo "  dev           - Inicia o ambiente de desenvolvimento com hot-reload"
+	@echo "  build         - Compila todos os microsserviços em modo release"
+	@echo "  build-local   - Compila o binário Tauri para a plataforma local"
+	@echo "  test          - Roda todos os testes (unitários e de integração)"
+	@echo "  lint          - Roda linters (clippy e fmt)"
+	@echo "  clean         - Limpa artefatos de build"
+	@echo "  proto-gen     - Gera código a partir dos arquivos .proto"
+	@echo "  docker-up     - Inicia todos os serviços com Docker Compose"
+	@echo "  docker-down   - Para e remove todos os containers Docker"
+	@echo "  docker-build  - Builda as imagens Docker para todos os serviços"
+	@echo "  docker-logs   - Mostra os logs de todos os serviços"
+	@echo "  deploy-k8s    - Aplica as configurações do Kubernetes"
 
-# Build all services
-build:
-	@echo "🔨 Building all services..."
-	docker-compose build --parallel
+# Setup Inicial
+# ------------------------------------------------------------------------------
+.PHONY: setup
+setup:
+	@echo "📦 Instalando dependências..."
+	@if ! command -v rustc &> /dev/null; then \
+		echo "Rust não encontrado. Por favor, instale via https://rustup.rs/"; \
+		exit 1; \
+	fi
+	@if ! command -v node &> /dev/null; then \
+		echo "Node.js não encontrado. Por favor, instale via nvm ou site oficial."; \
+		exit 1; \
+	fi
+	@if ! command -v docker &> /dev/null; then \
+		echo "Docker não encontrado. Por favor, instale."; \
+		exit 1; \
+	fi
+	rustup update
+	(cd frontend && npm install)
+	@echo "✅ Dependências instaladas."
 
-# Run tests
-test:
-	@echo "🧪 Running tests..."
-	cd services/auth-service && cargo test
-	cd services/agent-service && cargo test
-	cd services/masker-service && cargo test
-	cd services/storage-service && cargo test
-	cd services/search-service && cargo test
-	cd frontend && npm test
-
-# Start services
-up:
-	@echo "🚀 Starting all services..."
-	docker-compose up -d
-	@echo "✅ Services started! Access:"
-	@echo "  - API Gateway: http://localhost:8000"
-	@echo "  - Kong Admin: http://localhost:8001"
-	@echo "  - RabbitMQ: http://localhost:15672"
-	@echo "  - Grafana: http://localhost:3000"
-	@echo "  - Jaeger: http://localhost:16686"
-	@echo "  - Prometheus: http://localhost:9090"
-
-# Stop services
-down:
-	@echo "🛑 Stopping all services..."
-	docker-compose down
-
-# View logs
-logs:
-	docker-compose logs -f
-
-# Clean build artifacts
-clean:
-	@echo "🧹 Cleaning build artifacts..."
-	docker-compose down -v
-	find . -name "target" -type d -exec rm -rf {} +
-	find . -name "node_modules" -type d -exec rm -rf {} +
-	find . -name "dist" -type d -exec rm -rf {} +
-
-# Run database migrations
-migrate:
-	@echo "🗄️  Running database migrations..."
-	docker-compose run --rm storage-service sqlx migrate run
-	docker-compose run --rm auth-service sqlx migrate run
-
-# Lint code
-lint:
-	@echo "🔍 Running linters..."
-	cd services/auth-service && cargo clippy -- -D warnings
-	cd services/agent-service && cargo clippy -- -D warnings
-	cd services/masker-service && cargo clippy -- -D warnings
-	cd services/storage-service && cargo clippy -- -D warnings
-	cd services/search-service && cargo clippy -- -D warnings
-	cd frontend && npm run lint
-
-# Format code
-format:
-	@echo "✨ Formatting code..."
-	cd services/auth-service && cargo fmt
-	cd services/agent-service && cargo fmt
-	cd services/masker-service && cargo fmt
-	cd services/storage-service && cargo fmt
-	cd services/search-service && cargo fmt
-	cd frontend && npm run format
-
-# Pre-commit checks
-check: lint test
-	@echo "✅ All checks passed!"
-
-# Development mode
+# Desenvolvimento Local (Monolito)
+# ------------------------------------------------------------------------------
+.PHONY: dev
 dev:
-	@echo "🔧 Starting in development mode..."
-	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+	@echo "🚀 Iniciando ambiente de desenvolvimento (Tauri)..."
+	npm run tauri dev
 
-# Production mode
-prod:
-	@echo "🚀 Starting in production mode..."
-	docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Build
+# ------------------------------------------------------------------------------
+.PHONY: build
+build:
+	@echo "🏗️  Compilando todos os microsserviços em modo release..."
+	cargo build --workspace --release
+	@echo "✅ Build concluído."
+
+.PHONY: build-local
+build-local:
+	@echo "📦 Compilando aplicação Tauri para a plataforma local..."
+	npm run tauri build
+	@echo "✅ Build local concluído."
+
+# Testes e Qualidade
+# ------------------------------------------------------------------------------
+.PHONY: test
+test:
+	@echo "🧪 Rodando todos os testes..."
+	cargo test --workspace
+	(cd frontend && npm test)
+	@echo "✅ Testes concluídos."
+
+.PHONY: lint
+lint:
+	@echo "🔍 Rodando linters..."
+	cargo fmt --all -- --check
+	cargo clippy --workspace -- -D warnings
+	(cd frontend && npm run lint)
+	@echo "✅ Linting concluído."
+
+# Limpeza
+# ------------------------------------------------------------------------------
+.PHONY: clean
+clean:
+	@echo "🧹 Limpando artefatos de build..."
+	cargo clean
+	(cd frontend && rm -rf node_modules build dist)
+	@echo "✅ Limpeza concluída."
+
+# Microsserviços
+# ------------------------------------------------------------------------------
+.PHONY: proto-gen
+proto-gen:
+	@echo "🤖 Gerando código a partir dos arquivos .proto..."
+	(cd services/proto && buf generate)
+	@echo "✅ Código gerado."
+
+# Docker
+# ------------------------------------------------------------------------------
+.PHONY: docker-up
+docker-up:
+	@echo "🐳 Iniciando todos os serviços com Docker Compose..."
+	$(DOCKER_COMPOSE_DEV) up -d
+	@echo "✅ Serviços iniciados. Use 'make docker-logs' para ver os logs."
+
+.PHONY: docker-down
+docker-down:
+	@echo "🛑 Parando e removendo todos os containers..."
+	$(DOCKER_COMPOSE_DEV) down --remove-orphans
+	@echo "✅ Containers parados."
+
+.PHONY: docker-build
+docker-build:
+	@echo "🛠️  Buildando imagens Docker para todos os serviços..."
+	$(DOCKER_COMPOSE_DEV) build --parallel
+	@echo "✅ Imagens construídas."
+
+.PHONY: docker-logs
+docker-logs:
+	@echo "📜 Mostrando logs de todos os serviços..."
+	$(DOCKER_COMPOSE_DEV) logs -f
+
+# Kubernetes (Exemplo)
+# ------------------------------------------------------------------------------
+.PHONY: deploy-k8s
+deploy-k8s:
+	@echo "🚀 Aplicando configurações do Kubernetes..."
+	kubectl apply -f infrastructure/k8s/
+	@echo "✅ Deploy concluído."
+
+# Utilitários
+# ------------------------------------------------------------------------------
+.PHONY: list-services
+list-services:
+	@echo "Serviços disponíveis:"
+	@for service in $(SERVICES); do \
+		echo "  - $$service"; \
+	done
+
+.PHONY: check-env
+check-env:
+	@echo "Verificando variáveis de ambiente necessárias..."
+	@if [ -z "$(NATS_URL)" ]; then \
+		echo "Aviso: NATS_URL não definida."; \
+	fi
+	@if [ -z "$(DATABASE_URL)" ]; then \
+		echo "Aviso: DATABASE_URL não definida."; \
+	fi
+	@echo "✅ Verificação concluída."
 
 # Service-specific commands
 auth-logs:

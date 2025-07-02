@@ -5,53 +5,60 @@ edition = "2021"
 
 [dependencies]
 # Web Framework
-axum = "0.7"
-tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["macros", "json", "query", "tracing"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression", "timeout"] }
+hyper = { version = "1.0", features = ["full"] }
+tokio = { version = "1.35", features = ["full"] }
 
-# Serialização
+# Database & Cache
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+
+# Search & ML
+# Using postgres for FTS for now, can be replaced by Elasticsearch/OpenSearch
+# candle-core = "0.3"
+# candle-transformers = "0.3"
+# tokenizers = "0.15"
+fuzzy-matcher = "0.3"
+
+# Metrics & Tracing
+axum-prometheus = "0.4"
+prometheus = "0.13"
+opentelemetry = { version = "0.21", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.14"
+opentelemetry-semantic-conventions = "0.13"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.22"
+
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid"] }
-
-# Cache
-redis = { version = "0.23", features = ["tokio-comp"] }
-
-# Busca vetorial
-candle-core = "0.3"
-candle-nn = "0.3"
-candle-transformers = "0.3"
-tokenizers = "0.15"
-
-# Logging
-tracing = "0.4"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Validação
-validator = { version = "0.16", features = ["derive"] }
-
-# Configuração
+# Configuration
 config = "0.13"
+dotenv = "0.15"
 
-# Erro handling
+# Error Handling
 anyhow = "1.0"
 thiserror = "1.0"
 
-# OpenAPI
-utoipa = { version = "4", features = ["axum_extras", "chrono"] }
-utoipa-swagger-ui = { version = "6", features = ["axum"] }
-
-# Métricas
-prometheus = "0.13"
-
-# UUID
+# Utils
+chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 
-# Tempo
-chrono = { version = "0.4", features = ["serde"] }
+# API Documentation
+utoipa = { version = "4.1", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "5.0", features = ["axum"] }
 
-# Fuzzy search
-fuzzy-matcher = "0.3" 
+# Validation
+validator = { version = "0.16", features = ["derive"] }
+
+[dev-dependencies]
+mockall = "0.12"
+criterion = "0.5"
+
+[[bench]]
+name = "search_bench"
+harness = false 

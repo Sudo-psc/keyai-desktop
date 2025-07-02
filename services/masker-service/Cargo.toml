@@ -11,18 +11,13 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 hyper = { version = "1.0", features = ["full"] }
 tokio = { version = "1.35", features = ["full"] }
 
-# Message Queue
+# Message Queue (RabbitMQ)
+lapin = "2.3"
 async-nats = "0.33"
 
 # PII Detection and Masking
 regex = "1.10"
-once_cell = "1.19"
-lazy_static = "1.4"
-
-# ML/NLP (for advanced PII detection)
-# candle-core = "0.3"
-# candle-transformers = "0.3"
-# tokenizers = "0.15"
+aho-corasick = "1.1"
 
 # Metrics & Tracing
 prometheus = "0.13"
@@ -33,6 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bincode = "1.3"
+prost = "0.12"
 
 # Configuration
 config = "0.13"
@@ -46,19 +42,15 @@ thiserror = "1.0"
 # Utils
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
+once_cell = "1.19"
 
-# API Documentation (comentado temporariamente)
+# Redis for caching
+redis = { version = "0.24", features = ["tokio-comp"] }
+
+# API Documentation
 # utoipa = { version = "4.1", features = ["axum_extras"] }
 # utoipa-swagger-ui = { version = "5.0", features = ["axum"] }
 
-# Validation
-validator = { version = "0.16", features = ["derive"] }
-
 [dev-dependencies]
-mockall = "0.12"
-proptest = "1.4"
-criterion = "0.5"
-
-[[bench]]
-name = "masking_bench"
-harness = false 
+tokio-test = "0.4"
+mockall = "0.12" 

@@ -1,564 +1,269 @@
 use axum::{
-    extract::{State, Json},
+    extract::{Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::Json,
     routing::{get, post},
     Router,
 };
-use lapin::{
-    options::*, Connection, ConnectionProperties, message::DeliveryResult,
-    types::FieldTable,
-};
-use lazy_static::lazy_static;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tower_http::cors::CorsLayer;
-use tracing::{info, error, warn};
-use utoipa::{OpenApi, ToSchema};
-use utoipa_swagger_ui::SwaggerUi;
+use std::{sync::Arc, time::Duration};
+use tokio::time::timeout;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-#[derive(OpenApi)]
-#[openapi(
-    paths(
-        mask_text,
-        mask_batch,
-        get_patterns,
-        update_patterns,
-        get_statistics
-    ),
-    components(
-        schemas(
-            MaskRequest,
-            MaskBatchRequest,
-            MaskResponse,
-            PiiPattern,
-            MaskStatistics,
-            ApiResponse
-        )
-    ),
-    tags(
-        (name = "masker", description = "PII masking operations")
-    )
-)]
-struct ApiDoc;
+mod config;
+mod error;
+mod masker;
+mod metrics;
 
-#[derive(Debug, Clone)]
-struct AppState {
-    masker: Arc<Mutex<PiiMasker>>,
-    queue_connection: Arc<Mutex<Option<Connection>>>,
-    stats: Arc<Mutex<MaskStatistics>>,
-}
+use config::Config;
+use error::ServiceError;
+use masker::{MaskingEngine, MaskingResult};
+use metrics::Metrics;
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-struct MaskRequest {
-    /// Text to be masked
-    #[schema(example = "My email is john.doe@example.com and my CPF is 123.456.789-00")]
-    text: String,
-    
-    /// Optional context (application name, window title, etc)
-    context: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-struct MaskBatchRequest {
-    /// Array of texts to be masked
-    texts: Vec<MaskRequest>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-struct MaskResponse {
-    /// Original text
-    original: String,
-    
-    /// Masked text
-    masked: String,
-    
-    /// List of PII found and masked
-    pii_found: Vec<PiiFound>,
-    
-    /// Processing time in milliseconds
-    processing_time_ms: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-struct PiiFound {
-    /// Type of PII detected
-    pii_type: String,
-    
-    /// Position in original text
-    start: usize,
-    end: usize,
-    
-    /// Original value (partially masked for security)
-    original_value: String,
-    
-    /// Masked value
-    masked_value: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-struct PiiPattern {
-    /// Name of the pattern
-    name: String,
-    
-    /// Regex pattern
-    pattern: String,
-    
-    /// Replacement template
-    replacement: String,
-    
-    /// Is pattern enabled
-    enabled: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-struct MaskStatistics {
-    /// Total texts processed
-    total_processed: u64,
-    
-    /// Total PII items found
-    total_pii_found: u64,
-    
-    /// Processing stats by PII type
-    pii_type_stats: std::collections::HashMap<String, u64>,
-    
-    /// Average processing time
-    avg_processing_time_ms: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-struct ApiResponse<T> {
-    success: bool,
-    data: Option<T>,
-    error: Option<String>,
-}
-
-// PII Masker implementation
-struct PiiMasker {
-    patterns: Vec<PiiPattern>,
-}
-
-impl PiiMasker {
-    fn new() -> Self {
-        Self {
-            patterns: Self::default_patterns(),
-        }
-    }
-
-    fn default_patterns() -> Vec<PiiPattern> {
-        vec![
-            PiiPattern {
-                name: "email".to_string(),
-                pattern: r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}".to_string(),
-                replacement: "***@***.***".to_string(),
-                enabled: true,
-            },
-            PiiPattern {
-                name: "cpf".to_string(),
-                pattern: r"\d{3}\.\d{3}\.\d{3}-\d{2}".to_string(),
-                replacement: "***.***.***-**".to_string(),
-                enabled: true,
-            },
-            PiiPattern {
-                name: "phone_br".to_string(),
-                pattern: r"(\+55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}-?\d{4}".to_string(),
-                replacement: "(**) *****-****".to_string(),
-                enabled: true,
-            },
-            PiiPattern {
-                name: "credit_card".to_string(),
-                pattern: r"\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}".to_string(),
-                replacement: "****-****-****-****".to_string(),
-                enabled: true,
-            },
-            PiiPattern {
-                name: "ipv4".to_string(),
-                pattern: r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b".to_string(),
-                replacement: "***.***.***.***".to_string(),
-                enabled: true,
-            },
-        ]
-    }
-
-    fn mask_text(&self, text: &str) -> (String, Vec<PiiFound>) {
-        let mut masked = text.to_string();
-        let mut pii_found = Vec::new();
-        let mut offset = 0;
-
-        for pattern in &self.patterns {
-            if !pattern.enabled {
-                continue;
-            }
-
-            if let Ok(regex) = Regex::new(&pattern.pattern) {
-                let mut new_masked = masked.clone();
-                let mut local_offset = 0;
-
-                for mat in regex.find_iter(&masked) {
-                    let start = mat.start();
-                    let end = mat.end();
-                    let original_value = mat.as_str().to_string();
-                    
-                    // Partially mask the original value for logging
-                    let partial_mask = if original_value.len() > 4 {
-                        format!("{}...{}", 
-                            &original_value[..2], 
-                            &original_value[original_value.len()-2..])
-                    } else {
-                        "****".to_string()
-                    };
-
-                    pii_found.push(PiiFound {
-                        pii_type: pattern.name.clone(),
-                        start: start + offset,
-                        end: end + offset,
-                        original_value: partial_mask,
-                        masked_value: pattern.replacement.clone(),
-                    });
-
-                    // Replace in the new string
-                    new_masked.replace_range(
-                        (start + local_offset)..(end + local_offset),
-                        &pattern.replacement
-                    );
-                    
-                    // Update offset for next replacements
-                    local_offset += pattern.replacement.len() as i32 - (end - start) as i32;
-                }
-
-                masked = new_masked;
-                offset += local_offset;
-            }
-        }
-
-        (masked, pii_found)
-    }
-}
-
-// Queue event structure
 #[derive(Debug, Serialize, Deserialize)]
-struct KeyEvent {
-    id: Uuid,
-    timestamp: u64,
-    text: String,
-    application: Option<String>,
-    window_title: Option<String>,
+pub struct MaskingRequest {
+    pub text: String,
+    pub context: Option<String>,
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct MaskedEvent {
-    id: Uuid,
-    timestamp: u64,
-    original_text: String,
-    masked_text: String,
-    pii_found: Vec<PiiFound>,
-    application: Option<String>,
-    window_title: Option<String>,
+pub struct MaskingResponse {
+    pub original_text: String,
+    pub masked_text: String,
+    pub detected_patterns: Vec<String>,
+    pub processing_time_ms: u64,
 }
 
-// Queue consumer
-async fn setup_queue_consumer(app_state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error>> {
-    let addr = std::env::var("RABBITMQ_URL")
-        .unwrap_or_else(|_| "amqp://guest:guest@localhost:5672".to_string());
-    
-    let conn = Connection::connect(&addr, ConnectionProperties::default()).await?;
-    let channel = conn.create_channel().await?;
-    
-    // Declare queues
-    channel.queue_declare(
-        "key_events",
-        QueueDeclareOptions::default(),
-        FieldTable::default(),
-    ).await?;
-    
-    channel.queue_declare(
-        "masked_events",
-        QueueDeclareOptions::default(),
-        FieldTable::default(),
-    ).await?;
-    
-    // Set up consumer
-    let consumer = channel
-        .basic_consume(
-            "key_events",
-            "masker_consumer",
-            BasicConsumeOptions::default(),
-            FieldTable::default(),
-        )
-        .await?;
-    
-    let app_state_clone = app_state.clone();
-    
-    info!("Queue consumer started, waiting for messages...");
-    
-    // Process messages
-    tokio::spawn(async move {
-        let mut consumer_stream = consumer;
-        while let Some(delivery) = consumer_stream.recv().await {
-            match delivery {
-                Ok(delivery) => {
-                    if let Ok(event) = serde_json::from_slice::<KeyEvent>(&delivery.data) {
-                        // Mask the text
-                        let masker = app_state_clone.masker.lock().await;
-                        let (masked_text, pii_found) = masker.mask_text(&event.text);
-                        
-                        // Create masked event
-                        let masked_event = MaskedEvent {
-                            id: event.id,
-                            timestamp: event.timestamp,
-                            original_text: event.text,
-                            masked_text,
-                            pii_found,
-                            application: event.application,
-                            window_title: event.window_title,
-                        };
-                        
-                        // Publish to masked_events queue
-                        if let Ok(payload) = serde_json::to_vec(&masked_event) {
-                            let _ = channel
-                                .basic_publish(
-                                    "",
-                                    "masked_events",
-                                    BasicPublishOptions::default(),
-                                    &payload,
-                                    BasicProperties::default(),
-                                )
-                                .await;
-                        }
-                        
-                        // Update statistics
-                        let mut stats = app_state_clone.stats.lock().await;
-                        stats.total_processed += 1;
-                        stats.total_pii_found += masked_event.pii_found.len() as u64;
-                        
-                        for pii in &masked_event.pii_found {
-                            *stats.pii_type_stats.entry(pii.pii_type.clone()).or_insert(0) += 1;
-                        }
-                    }
-                    
-                    delivery
-                        .ack(BasicAckOptions::default())
-                        .await
-                        .expect("Failed to ack");
-                }
-                Err(error) => {
-                    error!("Error receiving message: {:?}", error);
-                }
-            }
-        }
-    });
-    
-    // Store connection
-    let mut conn_lock = app_state.queue_connection.lock().await;
-    *conn_lock = Some(conn);
-    
-    Ok(())
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HealthResponse {
+    pub status: String,
+    pub service: String,
+    pub version: String,
+    pub uptime_seconds: u64,
 }
 
-// API Endpoints
-#[utoipa::path(
-    post,
-    path = "/api/v1/mask",
-    tag = "masker",
-    request_body = MaskRequest,
-    responses(
-        (status = 200, description = "Text masked successfully", body = ApiResponse<MaskResponse>),
-        (status = 400, description = "Invalid request", body = ApiResponse<String>)
-    )
-)]
-async fn mask_text(
-    State(state): State<AppState>,
-    Json(request): Json<MaskRequest>,
-) -> impl IntoResponse {
-    let start = std::time::Instant::now();
-    
-    let masker = state.masker.lock().await;
-    let (masked, pii_found) = masker.mask_text(&request.text);
-    
-    let processing_time_ms = start.elapsed().as_secs_f64() * 1000.0;
-    
-    // Update statistics
-    let mut stats = state.stats.lock().await;
-    stats.total_processed += 1;
-    stats.total_pii_found += pii_found.len() as u64;
-    stats.avg_processing_time_ms = 
-        (stats.avg_processing_time_ms * (stats.total_processed - 1) as f64 + processing_time_ms) 
-        / stats.total_processed as f64;
-    
-    for pii in &pii_found {
-        *stats.pii_type_stats.entry(pii.pii_type.clone()).or_insert(0) += 1;
-    }
-    
-    Json(ApiResponse {
-        success: true,
-        data: Some(MaskResponse {
-            original: request.text,
-            masked,
-            pii_found,
-            processing_time_ms,
-        }),
-        error: None,
-    })
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MetricsResponse {
+    pub texts_processed: u64,
+    pub patterns_detected: u64,
+    pub errors: u64,
+    pub average_processing_time_ms: f64,
 }
 
-#[utoipa::path(
-    post,
-    path = "/api/v1/mask/batch",
-    tag = "masker",
-    request_body = MaskBatchRequest,
-    responses(
-        (status = 200, description = "Batch masked successfully", body = ApiResponse<Vec<MaskResponse>>)
-    )
-)]
-async fn mask_batch(
-    State(state): State<AppState>,
-    Json(request): Json<MaskBatchRequest>,
-) -> impl IntoResponse {
-    let masker = state.masker.lock().await;
-    let mut responses = Vec::new();
-    
-    for text_request in request.texts {
-        let start = std::time::Instant::now();
-        let (masked, pii_found) = masker.mask_text(&text_request.text);
-        let processing_time_ms = start.elapsed().as_secs_f64() * 1000.0;
-        
-        responses.push(MaskResponse {
-            original: text_request.text,
-            masked,
-            pii_found,
-            processing_time_ms,
-        });
-    }
-    
-    // Update statistics
-    let mut stats = state.stats.lock().await;
-    for response in &responses {
-        stats.total_processed += 1;
-        stats.total_pii_found += response.pii_found.len() as u64;
-        stats.avg_processing_time_ms = 
-            (stats.avg_processing_time_ms * (stats.total_processed - 1) as f64 + response.processing_time_ms) 
-            / stats.total_processed as f64;
-        
-        for pii in &response.pii_found {
-            *stats.pii_type_stats.entry(pii.pii_type.clone()).or_insert(0) += 1;
-        }
-    }
-    
-    Json(ApiResponse {
-        success: true,
-        data: Some(responses),
-        error: None,
-    })
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/patterns",
-    tag = "masker",
-    responses(
-        (status = 200, description = "Patterns retrieved", body = ApiResponse<Vec<PiiPattern>>)
-    )
-)]
-async fn get_patterns(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    let masker = state.masker.lock().await;
-    
-    Json(ApiResponse {
-        success: true,
-        data: Some(masker.patterns.clone()),
-        error: None,
-    })
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/v1/patterns",
-    tag = "masker",
-    request_body = Vec<PiiPattern>,
-    responses(
-        (status = 200, description = "Patterns updated", body = ApiResponse<String>)
-    )
-)]
-async fn update_patterns(
-    State(state): State<AppState>,
-    Json(patterns): Json<Vec<PiiPattern>>,
-) -> impl IntoResponse {
-    let mut masker = state.masker.lock().await;
-    masker.patterns = patterns;
-    
-    Json(ApiResponse {
-        success: true,
-        data: Some("Patterns updated successfully".to_string()),
-        error: None,
-    })
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/statistics",
-    tag = "masker",
-    responses(
-        (status = 200, description = "Statistics retrieved", body = ApiResponse<MaskStatistics>)
-    )
-)]
-async fn get_statistics(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    let stats = state.stats.lock().await;
-    
-    Json(ApiResponse {
-        success: true,
-        data: Some(stats.clone()),
-        error: None,
-    })
+#[derive(Clone)]
+pub struct AppState {
+    pub config: Arc<Config>,
+    pub masking_engine: Arc<MaskingEngine>,
+    pub metrics: Arc<Metrics>,
+    pub start_time: std::time::Instant,
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load configuration
+    let config = Config::from_env().map_err(|e| {
+        eprintln!("Failed to load configuration: {}", e);
+        e
+    })?;
+
     // Initialize tracing
-    tracing_subscriber::fmt::init();
+    init_tracing(&config.log_level)?;
 
-    // Create shared state
-    let state = Arc::new(AppState {
-        masker: Arc::new(Mutex::new(PiiMasker::new())),
-        queue_connection: Arc::new(Mutex::new(None)),
-        stats: Arc::new(Mutex::new(MaskStatistics {
-            total_processed: 0,
-            total_pii_found: 0,
-            pii_type_stats: std::collections::HashMap::new(),
-            avg_processing_time_ms: 0.0,
-        })),
-    });
+    info!("Starting masker-service v{}", env!("CARGO_PKG_VERSION"));
+    info!("Configuration loaded: {:?}", config);
 
-    // Setup queue consumer
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        if let Err(e) = setup_queue_consumer(state_clone).await {
-            error!("Failed to setup queue consumer: {}", e);
+    // Initialize components
+    let masking_engine = Arc::new(MaskingEngine::new());
+    let metrics = Arc::new(Metrics::new());
+    
+    // Create application state
+    let state = AppState {
+        config: Arc::new(config.clone()),
+        masking_engine,
+        metrics,
+        start_time: std::time::Instant::now(),
+    };
+
+    // Create router
+    let app = create_router(state);
+
+    // Start server
+    let listener = tokio::net::TcpListener::bind(&config.server_address).await?;
+    info!("Masker service listening on {}", config.server_address);
+
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+fn create_router(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(health_check))
+        .route("/metrics", get(get_metrics))
+        .route("/mask", post(mask_text))
+        .route("/mask/batch", post(mask_batch))
+        .with_state(state)
+}
+
+async fn health_check(State(state): State<AppState>) -> Result<Json<HealthResponse>, ServiceError> {
+    let uptime = state.start_time.elapsed().as_secs();
+    
+    Ok(Json(HealthResponse {
+        status: "healthy".to_string(),
+        service: "masker-service".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        uptime_seconds: uptime,
+    }))
+}
+
+async fn get_metrics(State(state): State<AppState>) -> Result<Json<MetricsResponse>, ServiceError> {
+    let metrics = state.metrics.as_ref();
+    
+    Ok(Json(MetricsResponse {
+        texts_processed: metrics.get_processed(),
+        patterns_detected: metrics.get_patterns_detected(),
+        errors: metrics.get_errors(),
+        average_processing_time_ms: metrics.get_average_processing_time(),
+    }))
+}
+
+async fn mask_text(
+    State(state): State<AppState>,
+    Json(request): Json<MaskingRequest>,
+) -> Result<Json<MaskingResponse>, ServiceError> {
+    let _timer = state.metrics.start_processing_timer();
+    let start_time = std::time::Instant::now();
+
+    // Validate input
+    if request.text.trim().is_empty() {
+        return Err(ServiceError::BadRequest("Text cannot be empty".to_string()));
+    }
+
+    if request.text.len() > 10000 {
+        return Err(ServiceError::BadRequest("Text too long (max 10000 characters)".to_string()));
+    }
+
+    // Process with timeout
+    let result = timeout(
+        Duration::from_secs(5),
+        state.masking_engine.mask_text(&request.text, request.context.as_deref())
+    ).await;
+
+    let masking_result = match result {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
+            state.metrics.increment_errors();
+            error!("Masking failed: {}", e);
+            return Err(ServiceError::Internal(format!("Masking failed: {}", e)));
         }
-    });
+        Err(_) => {
+            state.metrics.increment_errors();
+            warn!("Masking timeout for text length: {}", request.text.len());
+            return Err(ServiceError::ServiceUnavailable("Request timeout".to_string()));
+        }
+    };
 
-    // Build the application
-    let app = Router::new()
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .route("/api/v1/mask", post(mask_text))
-        .route("/api/v1/mask/batch", post(mask_batch))
-        .route("/api/v1/patterns", get(get_patterns).post(update_patterns))
-        .route("/api/v1/statistics", get(get_statistics))
-        .route("/health", get(|| async { "OK" }))
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+    let processing_time = start_time.elapsed().as_millis() as u64;
+    
+    // Update metrics
+    state.metrics.increment_processed();
+    if !masking_result.detected_patterns.is_empty() {
+        state.metrics.add_patterns_detected(masking_result.detected_patterns.len() as u64);
+    }
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8002")
-        .await
-        .unwrap();
-    
-    info!("Masker Service listening on http://0.0.0.0:8002");
-    info!("Swagger UI available at http://0.0.0.0:8002/swagger-ui");
-    
-    axum::serve(listener, app).await.unwrap();
+    Ok(Json(MaskingResponse {
+        original_text: request.text,
+        masked_text: masking_result.masked_text,
+        detected_patterns: masking_result.detected_patterns,
+        processing_time_ms: processing_time,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct BatchRequest {
+    texts: Vec<MaskingRequest>,
+}
+
+#[derive(Debug, Serialize)]
+struct BatchResponse {
+    results: Vec<MaskingResponse>,
+    total_processing_time_ms: u64,
+}
+
+async fn mask_batch(
+    State(state): State<AppState>,
+    Json(request): Json<BatchRequest>,
+) -> Result<Json<BatchResponse>, ServiceError> {
+    let start_time = std::time::Instant::now();
+
+    // Validate batch size
+    if request.texts.is_empty() {
+        return Err(ServiceError::BadRequest("Batch cannot be empty".to_string()));
+    }
+
+    if request.texts.len() > 100 {
+        return Err(ServiceError::BadRequest("Batch too large (max 100 items)".to_string()));
+    }
+
+    let mut results = Vec::new();
+
+    for text_request in request.texts {
+        match mask_single_text(&state, text_request).await {
+            Ok(response) => results.push(response),
+            Err(e) => {
+                error!("Failed to process text in batch: {}", e);
+                // Continue processing other texts in batch
+                results.push(MaskingResponse {
+                    original_text: "".to_string(),
+                    masked_text: "".to_string(),
+                    detected_patterns: vec![],
+                    processing_time_ms: 0,
+                });
+            }
+        }
+    }
+
+    let total_time = start_time.elapsed().as_millis() as u64;
+
+    Ok(Json(BatchResponse {
+        results,
+        total_processing_time_ms: total_time,
+    }))
+}
+
+async fn mask_single_text(
+    state: &AppState,
+    request: MaskingRequest,
+) -> Result<MaskingResponse, ServiceError> {
+    let start_time = std::time::Instant::now();
+
+    let result = state.masking_engine.mask_text(&request.text, request.context.as_deref()).await
+        .map_err(|e| ServiceError::Internal(format!("Masking failed: {}", e)))?;
+
+    let processing_time = start_time.elapsed().as_millis() as u64;
+
+    Ok(MaskingResponse {
+        original_text: request.text,
+        masked_text: result.masked_text,
+        detected_patterns: result.detected_patterns,
+        processing_time_ms: processing_time,
+    })
+}
+
+fn init_tracing(log_level: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+    let log_level = log_level.parse().unwrap_or(tracing::Level::INFO);
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("masker_service={},axum=debug", log_level).into()),
+        )
+        .with(tracing_subscriber::fmt::layer().json())
+        .init();
+
+    Ok(())
 } 

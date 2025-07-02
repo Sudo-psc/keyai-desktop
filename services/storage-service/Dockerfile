@@ -1,16 +1,30 @@
 # Build stage
-FROM rust:1.78 as builder
+FROM rust:1.75-slim as builder
 
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
 WORKDIR /app
 
 # Copy manifests
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock ./
 
-# Copy source
-COPY src ./src
+# Build dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src
 
-# Build
-RUN cargo build --release
+# Copy source code
+COPY . .
+
+# Build application
+RUN touch src/main.rs && \
+    cargo build --release
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -19,16 +33,27 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
-    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Create non-root user
+RUN useradd -m -u 1001 -U -s /bin/sh appuser
 
-# Copy the binary from builder
-COPY --from=builder /app/target/release/storage-service /app/storage-service
+# Copy binary and migrations from builder
+COPY --from=builder /app/target/release/storage-service /usr/local/bin/storage-service
+COPY --from=builder /app/migrations /app/migrations
+
+# Set ownership
+RUN chown -R appuser:appuser /app /usr/local/bin/storage-service
+
+# Switch to non-root user
+USER appuser
 
 # Expose port
-EXPOSE 8003
+EXPOSE 3003
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3003/health || exit 1
 
 # Run the binary
-CMD ["./storage-service"] 
+ENTRYPOINT ["storage-service"] 
