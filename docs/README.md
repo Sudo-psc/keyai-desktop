@@ -15,6 +15,7 @@ Bem-vindo à documentação completa do KeyAI Desktop! Este diretório contém t
 
 ### 🏗️ Documentação Técnica
 - **[ARCHITECTURE.md](../ARCHITECTURE.md)** - Arquitetura detalhada do sistema
+- **[MICROSERVICES_ARCHITECTURE.md](MICROSERVICES_ARCHITECTURE.md)** - Nova arquitetura de microsserviços 🆕
 - **[API.md](API.md)** - Documentação completa da API interna
 - **[DEPLOYMENT.md](../DEPLOYMENT.md)** - Guia de deployment e distribuição
 

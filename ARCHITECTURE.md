@@ -646,12 +646,52 @@ criterion_main!(benches);
 - Melhorias na busca semântica
 - API para extensões
 
-### Versão 2.0 (Futuro)
+### Versão 2.0 (Em Desenvolvimento) 🆕
+
+- **Migração para Arquitetura de Microsserviços**
+- Arquitetura distribuída com serviços independentes
+- Suporte para deployment híbrido (local + cloud)
+- Escalabilidade horizontal
+- Observabilidade avançada
+
+Para detalhes completos sobre a nova arquitetura de microsserviços, consulte:
+📘 **[Documentação de Arquitetura de Microsserviços](docs/MICROSERVICES_ARCHITECTURE.md)**
+
+### Versão 3.0 (Futuro)
 
 - Arquitetura de plugins
 - OCR para captura de texto
 - Sincronização opcional (E2E encrypted)
 - Machine Learning local avançado
+- Integração com assistentes AI
+
+## 🎯 Status da Migração para Microsserviços
+
+### Benefícios Esperados
+
+1. **Escalabilidade**: Cada componente escala independentemente
+2. **Resiliência**: Falhas isoladas não afetam todo o sistema
+3. **Velocidade de Desenvolvimento**: Times podem trabalhar em paralelo
+4. **Flexibilidade**: Suporta tanto cloud quanto on-premise
+5. **Observabilidade**: Visibilidade completa do sistema
+
+### Progresso Atual
+
+- [x] Análise e revisão da arquitetura monolítica
+- [x] Design da nova arquitetura de microsserviços
+- [x] Documentação técnica completa
+- [ ] Implementação do PoC (Capture + Masking services)
+- [ ] Validação de performance e latência
+- [ ] Migração incremental dos componentes
+
+### Como Contribuir
+
+Se você está interessado em contribuir com a migração para microsserviços:
+
+1. Leia a [documentação completa](docs/MICROSERVICES_ARCHITECTURE.md)
+2. Participe das discussões no GitHub Issues
+3. Escolha um componente para ajudar a migrar
+4. Siga o guia de contribuição
 
 ---
 

@@ -1,0 +1,63 @@
+[package]
+name = "capture-service"
+version = "0.1.0"
+edition = "2021"
+authors = ["KeyAI Team"]
+description = "Keyboard capture microservice for KeyAI"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+tokio-stream = "0.1"
+
+# gRPC framework
+tonic = "0.11"
+prost = "0.12"
+
+# Message queue
+async-nats = "0.33"
+
+# Keyboard capture
+rdev = "0.5.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+opentelemetry = "0.21"
+opentelemetry-jaeger = "0.20"
+tracing-opentelemetry = "0.22"
+
+# Metrics
+prometheus = "0.13"
+
+# Utils
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Health checks
+tonic-health = "0.11"
+
+# Configuration
+config = "0.13"
+envy = "0.4"
+
+# Circuit breaker
+failsafe = "1.2"
+
+[build-dependencies]
+tonic-build = "0.11"
+
+[dev-dependencies]
+mockall = "0.12"
+proptest = "1.4"
+criterion = "0.5"
+
+[[bench]]
+name = "capture_bench"
+harness = false 

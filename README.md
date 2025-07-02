@@ -16,6 +16,8 @@ KeyAI Desktop v1.0 é um aplicativo de registro de teclas (keylogger) local foca
 
 ## 🏗️ Arquitetura
 
+### Arquitetura Atual (v1.0 - Monolítica)
+
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │     Agente      │───▶│     Masker      │───▶│   Database      │
@@ -29,12 +31,38 @@ KeyAI Desktop v1.0 é um aplicativo de registro de teclas (keylogger) local foca
                         └─────────────────┘
 ```
 
-### Componentes
-
+**Componentes:**
 - **Agente (Rust)**: Captura eventos de teclado usando `rdev`
 - **Masker (Rust)**: Aplica regex para mascarar PII em tempo real
 - **Database (Rust)**: SQLite criptografado com FTS5 e sqlite-vec
 - **Frontend (React)**: Interface do usuário moderna e responsiva
+
+### Nova Arquitetura (v2.0 - Microsserviços) 🆕
+
+```
+┌───────────────────────────────────────────────────────┐
+│                   API Gateway                         │
+└───────────────────────────────────────────────────────┘
+     │            │            │            │        │
+┌────▼────┐  ┌───▼───┐  ┌────▼───┐  ┌────▼────┐  ┌▼────────┐
+│ Capture │  │Masking│  │ Search │  │Storage │  │Analytics│
+│ Service │  │Service│  │Service │  │Service │  │ Service │
+└─────────┘  └───────┘  └────────┘  └─────────┘  └─────────┘
+     │            │           │            │           │
+┌────▼────────────▼───────────▼────────────▼───────────▼────┐
+│                     Message Bus (NATS)                    │
+└───────────────────────────────────────────────────────────┘
+```
+
+**Benefícios da Nova Arquitetura:**
+- ✅ **Escalabilidade**: Cada serviço escala independentemente
+- ✅ **Flexibilidade**: Deploy local ou cloud
+- ✅ **Resiliência**: Falhas isoladas não afetam todo o sistema
+- ✅ **Desenvolvimento**: Times podem trabalhar em paralelo
+
+Para detalhes técnicos completos:
+- 📘 [Arquitetura Atual](ARCHITECTURE.md)
+- 📗 [Arquitetura de Microsserviços](docs/MICROSERVICES_ARCHITECTURE.md)
 
 ## 🚀 Instalação
 

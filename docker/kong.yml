@@ -1,11 +1,12 @@
 _format_version: "3.0"
 
 services:
-  - name: agent-service
-    url: http://agent-service:8001
+  - name: capture-service
+    url: http://capture-service:8080
     routes:
-      - name: agent-routes
+      - name: capture-routes
         paths:
+          - /api/v1/capture
           - /api/v1/agent
         strip_path: false
         methods:
@@ -15,10 +16,10 @@ services:
           - DELETE
           - OPTIONS
 
-  - name: masker-service
-    url: http://masker-service:8002
+  - name: masking-service
+    url: http://masking-service:8080
     routes:
-      - name: masker-routes
+      - name: masking-routes
         paths:
           - /api/v1/mask
           - /api/v1/patterns
@@ -32,7 +33,7 @@ services:
           - OPTIONS
 
   - name: storage-service
-    url: http://storage-service:8003
+    url: http://storage-service:8080
     routes:
       - name: storage-routes
         paths:
@@ -48,7 +49,7 @@ services:
           - OPTIONS
 
   - name: search-service
-    url: http://search-service:8004
+    url: http://search-service:8080
     routes:
       - name: search-routes
         paths:
@@ -153,10 +154,10 @@ acls:
     group: admins
 
 upstreams:
-  - name: agent-service-upstream
+  - name: capture-service-upstream
     slots: 100
     targets:
-      - target: agent-service:8001
+      - target: capture-service:8080
         weight: 100
     healthchecks:
       active:
@@ -169,10 +170,10 @@ upstreams:
         http_path: /health
         timeout: 2
 
-  - name: masker-service-upstream
+  - name: masking-service-upstream
     slots: 100
     targets:
-      - target: masker-service:8002
+      - target: masking-service:8080
         weight: 100
     healthchecks:
       active:
@@ -188,7 +189,7 @@ upstreams:
   - name: storage-service-upstream
     slots: 100
     targets:
-      - target: storage-service:8003
+      - target: storage-service:8080
         weight: 100
     healthchecks:
       active:
@@ -204,7 +205,7 @@ upstreams:
   - name: search-service-upstream
     slots: 100
     targets:
-      - target: search-service:8004
+      - target: search-service:8080
         weight: 100
     healthchecks:
       active:
