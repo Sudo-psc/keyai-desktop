@@ -1,12 +1,35 @@
 use anyhow::Result;
-use async_nats::Client as NatsClient;
-use chrono::{DateTime, Utc};
-use prometheus::{Counter, Histogram, Registry};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
+};
+use axum_prometheus::PrometheusMetricLayer;
+use lapin::{
+    options::*, types::FieldTable, BasicProperties, Channel, Connection, ConnectionProperties,
+};
+use opentelemetry::global;
+use opentelemetry::sdk::propagation::TraceContextPropagator;
 use rdev::{listen, Event, EventType};
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tracing::{error, info, instrument, warn};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::{mpsc, RwLock};
+use tower::ServiceBuilder;
+use tower_http::{
+    compression::CompressionLayer,
+    cors::{Any, CorsLayer},
+    timeout::TimeoutLayer,
+    trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer},
+};
+use tracing::{error, info, warn, Level};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
 mod config;
@@ -16,207 +39,398 @@ mod metrics;
 mod publisher;
 
 use config::Config;
-use error::CaptureError;
-use publisher::{EventPublisher, NatsPublisher};
+use error::ServiceError;
+use metrics::Metrics;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CaptureEvent {
-    pub id: Uuid,
-    pub timestamp: DateTime<Utc>,
-    pub event_type: String,
-    pub key_code: Option<u32>,
-    pub key_char: Option<String>,
-    pub application: Option<String>,
-    pub window_title: Option<String>,
-    pub user_id: String,
+#[derive(Clone)]
+struct AppState {
+    config: Arc<Config>,
+    channel: Arc<RwLock<Channel>>,
+    metrics: Arc<Metrics>,
+    event_tx: mpsc::UnboundedSender<KeystrokeEvent>,
 }
 
-pub struct CaptureService {
-    publisher: Arc<dyn EventPublisher>,
-    config: Config,
-    metrics: ServiceMetrics,
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+struct KeystrokeEvent {
+    #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
+    id: Uuid,
+    #[schema(example = "keypress")]
+    event_type: String,
+    #[schema(example = "a")]
+    key: Option<String>,
+    #[schema(example = "65")]
+    key_code: Option<u32>,
+    #[schema(example = 1704067200000)]
+    timestamp: u64,
+    #[schema(example = "user123")]
+    user_id: String,
+    #[schema(example = "session456")]
+    session_id: String,
+    #[schema(example = "VS Code")]
+    application: Option<String>,
+    #[schema(example = {"shift": false, "ctrl": false, "alt": false, "meta": false})]
+    modifiers: KeyModifiers,
 }
 
-struct ServiceMetrics {
-    events_captured: Counter,
-    events_published: Counter,
-    publish_errors: Counter,
-    capture_latency: Histogram,
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+struct KeyModifiers {
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    meta: bool,
 }
 
-impl CaptureService {
-    pub fn new(publisher: Arc<dyn EventPublisher>, config: Config) -> Self {
-        let registry = Registry::new();
-        let metrics = ServiceMetrics {
-            events_captured: Counter::new("capture_events_total", "Total events captured")
-                .expect("metric creation failed"),
-            events_published: Counter::new("capture_events_published", "Events published successfully")
-                .expect("metric creation failed"),
-            publish_errors: Counter::new("capture_publish_errors", "Failed publish attempts")
-                .expect("metric creation failed"),
-            capture_latency: Histogram::with_opts(
-                prometheus::HistogramOpts::new(
-                    "capture_latency_seconds",
-                    "Time to capture and process event"
-                ).buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1]),
-            ).expect("metric creation failed"),
-        };
-
-        // Register metrics
-        registry.register(Box::new(metrics.events_captured.clone())).unwrap();
-        registry.register(Box::new(metrics.events_published.clone())).unwrap();
-        registry.register(Box::new(metrics.publish_errors.clone())).unwrap();
-        registry.register(Box::new(metrics.capture_latency.clone())).unwrap();
-
-        Self {
-            publisher,
-            config,
-            metrics,
-        }
-    }
-
-    #[instrument(skip(self))]
-    pub async fn run(&self) -> Result<()> {
-        info!("Starting capture service");
-        
-        let (tx, mut rx) = mpsc::channel::<CaptureEvent>(1000);
-        
-        // Spawn keyboard listener in blocking thread
-        let tx_clone = tx.clone();
-        let user_id = self.config.user_id.clone();
-        
-        std::thread::spawn(move || {
-            info!("Starting keyboard listener thread");
-            
-            if let Err(e) = listen(move |event| {
-                if let EventType::KeyPress(key) = event.event_type {
-                    let capture_event = CaptureEvent {
-                        id: Uuid::new_v4(),
-                        timestamp: Utc::now(),
-                        event_type: "keypress".to_string(),
-                        key_code: Some(key as u32),
-                        key_char: None, // Will be resolved by downstream service
-                        application: get_active_application(),
-                        window_title: get_active_window_title(),
-                        user_id: user_id.clone(),
-                    };
-                    
-                    // Non-blocking send
-                    if let Err(e) = tx_clone.try_send(capture_event) {
-                        warn!("Channel full, dropping event: {}", e);
-                    }
-                }
-            }) {
-                error!("Keyboard listener error: {}", e);
-            }
-        });
-
-        // Process events asynchronously
-        while let Some(event) = rx.recv().await {
-            let publisher = Arc::clone(&self.publisher);
-            let metrics = self.metrics.clone();
-            
-            // Spawn task to publish without blocking receiver
-            tokio::spawn(async move {
-                let timer = metrics.capture_latency.start_timer();
-                
-                metrics.events_captured.inc();
-                
-                match publisher.publish(event).await {
-                    Ok(_) => {
-                        metrics.events_published.inc();
-                    }
-                    Err(e) => {
-                        error!("Failed to publish event: {}", e);
-                        metrics.publish_errors.inc();
-                    }
-                }
-                
-                timer.observe_duration();
-            });
-        }
-
-        Ok(())
-    }
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+struct CaptureStatus {
+    #[schema(example = true)]
+    active: bool,
+    #[schema(example = 12345)]
+    events_captured: u64,
+    #[schema(example = 123)]
+    events_published: u64,
+    #[schema(example = 2)]
+    errors: u64,
+    #[schema(example = "2024-01-01T00:00:00Z")]
+    started_at: String,
 }
 
-// Platform-specific implementations
-#[cfg(target_os = "windows")]
-fn get_active_application() -> Option<String> {
-    // Windows implementation using WinAPI
-    None
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+struct ApiError {
+    #[schema(example = "Bad Request")]
+    error: String,
+    #[schema(example = "Invalid input")]
+    message: String,
+    #[schema(example = "REQ123")]
+    request_id: String,
 }
 
-#[cfg(target_os = "macos")]
-fn get_active_application() -> Option<String> {
-    // macOS implementation using Accessibility API
-    None
-}
-
-#[cfg(target_os = "linux")]
-fn get_active_application() -> Option<String> {
-    // Linux implementation using X11/Wayland
-    None
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-fn get_active_application() -> Option<String> {
-    None
-}
-
-fn get_active_window_title() -> Option<String> {
-    // Similar platform-specific implementation
-    None
-}
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        health_check,
+        get_status,
+        start_capture,
+        stop_capture,
+        toggle_capture
+    ),
+    components(
+        schemas(CaptureStatus, ApiError, KeystrokeEvent, KeyModifiers)
+    ),
+    tags(
+        (name = "health", description = "Health check endpoints"),
+        (name = "capture", description = "Capture control endpoints")
+    ),
+    info(
+        title = "KeyAI Capture Service",
+        version = "1.0.0",
+        description = "Keyboard capture microservice for KeyAI",
+        contact(
+            name = "KeyAI Team",
+            email = "api@keyai.com"
+        ),
+        license(
+            name = "MIT"
+        )
+    ),
+    servers(
+        (url = "http://localhost:3001", description = "Local development"),
+        (url = "http://capture-service:3001", description = "Docker environment")
+    )
+)]
+struct ApiDoc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter("capture_service=debug,info")
-        .json()
-        .init();
+    init_tracing();
 
     // Load configuration
-    let config = Config::from_env()?;
-    info!("Loaded configuration: {:?}", config);
+    let config = Arc::new(Config::from_env()?);
+    info!("Starting Capture Service on {}", config.server_address);
 
-    // Connect to NATS
-    let nats_client = async_nats::connect(&config.nats_url).await?;
-    info!("Connected to NATS at {}", config.nats_url);
+    // Initialize RabbitMQ connection
+    let conn = Connection::connect(&config.rabbitmq_url, ConnectionProperties::default()).await?;
+    let channel = Arc::new(RwLock::new(conn.create_channel().await?));
 
-    // Create publisher
-    let publisher = Arc::new(NatsPublisher::new(
-        nats_client,
-        config.nats_subject.clone(),
-    ));
+    // Declare exchange and queue
+    {
+        let chan = channel.read().await;
+        chan.exchange_declare(
+            "keystrokes",
+            lapin::ExchangeKind::Topic,
+            ExchangeDeclareOptions::default(),
+            FieldTable::default(),
+        )
+        .await?;
 
-    // Create and run service
-    let service = CaptureService::new(publisher, config.clone());
-    
-    // Spawn health check server
-    let health_handle = tokio::spawn(health::run_health_server(config.health_port));
-    
-    // Run capture service
-    let capture_handle = tokio::spawn(async move {
-        if let Err(e) = service.run().await {
-            error!("Capture service error: {}", e);
+        chan.queue_declare(
+            "keystrokes.raw",
+            QueueDeclareOptions::default(),
+            FieldTable::default(),
+        )
+        .await?;
+
+        chan.queue_bind(
+            "keystrokes.raw",
+            "keystrokes",
+            "raw.*",
+            QueueBindOptions::default(),
+            FieldTable::default(),
+        )
+        .await?;
+    }
+
+    // Create metrics
+    let metrics = Arc::new(Metrics::new());
+
+    // Create event channel
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<KeystrokeEvent>();
+
+    // Create app state
+    let state = AppState {
+        config: config.clone(),
+        channel: channel.clone(),
+        metrics: metrics.clone(),
+        event_tx,
+    };
+
+    // Start event publisher task
+    let publisher_state = state.clone();
+    tokio::spawn(async move {
+        while let Some(event) = event_rx.recv().await {
+            if let Err(e) = publish_event(&publisher_state, event).await {
+                error!("Failed to publish event: {}", e);
+                publisher_state.metrics.increment_errors();
+            }
         }
     });
 
-    // Wait for shutdown
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            info!("Received shutdown signal");
+    // Start keyboard capture in separate thread
+    let capture_tx = state.event_tx.clone();
+    let capture_metrics = state.metrics.clone();
+    thread::spawn(move || {
+        info!("Starting keyboard capture thread");
+        
+        if let Err(e) = listen(move |event| {
+            if let Some(keystroke) = process_keyboard_event(event) {
+                capture_metrics.increment_captured();
+                if let Err(e) = capture_tx.send(keystroke) {
+                    error!("Failed to send keystroke event: {}", e);
+                }
+            }
+        }) {
+            error!("Keyboard capture error: {:?}", e);
         }
-        _ = capture_handle => {
-            error!("Capture service terminated unexpectedly");
-        }
-        _ = health_handle => {
-            error!("Health server terminated unexpectedly");
-        }
-    }
+    });
 
-    info!("Shutting down capture service");
+    // Setup metrics layer
+    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
+
+    // Build router
+    let app = Router::new()
+        .route("/health", get(health_check))
+        .route("/status", get(get_status))
+        .route("/capture/start", post(start_capture))
+        .route("/capture/stop", post(stop_capture))
+        .route("/capture/toggle", post(toggle_capture))
+        .route("/metrics", get(|| async move { metric_handle.render() }))
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .layer(
+            ServiceBuilder::new()
+                .layer(prometheus_layer)
+                .layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                        .on_request(DefaultOnRequest::new().level(Level::INFO))
+                        .on_response(DefaultOnResponse::new().level(Level::INFO)),
+                )
+                .layer(CompressionLayer::new())
+                .layer(TimeoutLayer::new(Duration::from_secs(30)))
+                .layer(
+                    CorsLayer::new()
+                        .allow_origin(Any)
+                        .allow_methods(Any)
+                        .allow_headers(Any),
+                ),
+        )
+        .with_state(state);
+
+    // Start server
+    let addr = config.server_address.parse::<SocketAddr>()?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("Capture Service listening on {}", addr);
+
+    axum::serve(listener, app).await?;
+
     Ok(())
+}
+
+fn init_tracing() {
+    global::set_text_map_propagator(TraceContextPropagator::new());
+
+    let tracer = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+        .with_trace_config(
+            opentelemetry::sdk::trace::config()
+                .with_resource(opentelemetry::sdk::Resource::new(vec![
+                    opentelemetry::KeyValue::new("service.name", "capture-service"),
+                ])),
+        )
+        .install_simple()
+        .unwrap();
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer().json())
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .init();
+}
+
+fn process_keyboard_event(event: Event) -> Option<KeystrokeEvent> {
+    match event.event_type {
+        EventType::KeyPress(key) => {
+            let key_str = format!("{:?}", key);
+            Some(KeystrokeEvent {
+                id: Uuid::new_v4(),
+                event_type: "keypress".to_string(),
+                key: Some(key_str),
+                key_code: None,
+                timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+                user_id: "default".to_string(), // TODO: Get from auth context
+                session_id: "default".to_string(), // TODO: Generate session ID
+                application: get_active_application(),
+                modifiers: KeyModifiers {
+                    shift: false, // TODO: Detect modifiers
+                    ctrl: false,
+                    alt: false,
+                    meta: false,
+                },
+            })
+        }
+        _ => None,
+    }
+}
+
+async fn publish_event(state: &AppState, event: KeystrokeEvent) -> Result<()> {
+    let payload = serde_json::to_vec(&event)?;
+    let channel = state.channel.read().await;
+    
+    channel
+        .basic_publish(
+            "keystrokes",
+            "raw.keystroke",
+            BasicPublishOptions::default(),
+            &payload,
+            BasicProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2), // Persistent
+        )
+        .await?;
+
+    state.metrics.increment_published();
+    Ok(())
+}
+
+fn get_active_application() -> Option<String> {
+    // Platform-specific implementation
+    #[cfg(target_os = "windows")]
+    {
+        // TODO: Implement Windows active window detection
+        Some("Unknown".to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // TODO: Implement macOS active window detection
+        Some("Unknown".to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // TODO: Implement Linux active window detection
+        Some("Unknown".to_string())
+    }
+}
+
+// API Handlers
+
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is healthy", body = String),
+        (status = 503, description = "Service is unhealthy", body = ApiError)
+    )
+)]
+async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+    // Check RabbitMQ connection
+    let channel = state.channel.read().await;
+    match channel.status().state() {
+        lapin::ChannelState::Connected => (StatusCode::OK, "healthy"),
+        _ => (StatusCode::SERVICE_UNAVAILABLE, "unhealthy"),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/status",
+    tag = "capture",
+    responses(
+        (status = 200, description = "Capture status", body = CaptureStatus)
+    )
+)]
+async fn get_status(State(state): State<AppState>) -> impl IntoResponse {
+    let status = CaptureStatus {
+        active: true, // TODO: Implement capture control
+        events_captured: state.metrics.get_captured(),
+        events_published: state.metrics.get_published(),
+        errors: state.metrics.get_errors(),
+        started_at: chrono::Utc::now().to_rfc3339(),
+    };
+    
+    Json(status)
+}
+
+#[utoipa::path(
+    post,
+    path = "/capture/start",
+    tag = "capture",
+    responses(
+        (status = 200, description = "Capture started"),
+        (status = 400, description = "Capture already active", body = ApiError)
+    )
+)]
+async fn start_capture(State(_state): State<AppState>) -> impl IntoResponse {
+    // TODO: Implement capture control
+    StatusCode::OK
+}
+
+#[utoipa::path(
+    post,
+    path = "/capture/stop",
+    tag = "capture",
+    responses(
+        (status = 200, description = "Capture stopped"),
+        (status = 400, description = "Capture not active", body = ApiError)
+    )
+)]
+async fn stop_capture(State(_state): State<AppState>) -> impl IntoResponse {
+    // TODO: Implement capture control
+    StatusCode::OK
+}
+
+#[utoipa::path(
+    post,
+    path = "/capture/toggle",
+    tag = "capture",
+    responses(
+        (status = 200, description = "Capture toggled", body = CaptureStatus)
+    )
+)]
+async fn toggle_capture(State(state): State<AppState>) -> impl IntoResponse {
+    // TODO: Implement capture control
+    get_status(State(state)).await
 } 

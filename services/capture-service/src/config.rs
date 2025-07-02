@@ -1,94 +1,75 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    // Service identification
+    #[serde(default = "default_server_address")]
+    pub server_address: String,
+    
+    #[serde(default = "default_rabbitmq_url")]
+    pub rabbitmq_url: String,
+    
+    #[serde(default = "default_redis_url")]
+    pub redis_url: String,
+    
+    #[serde(default = "default_jaeger_endpoint")]
+    pub jaeger_endpoint: String,
+    
+    #[serde(default = "default_service_name")]
     pub service_name: String,
-    pub user_id: String,
     
-    // NATS configuration
-    pub nats_url: String,
-    pub nats_subject: String,
-    pub nats_user: Option<String>,
-    pub nats_password: Option<String>,
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
     
-    // Service configuration
+    #[serde(default = "default_buffer_size")]
     pub buffer_size: usize,
-    pub batch_size: usize,
+    
+    #[serde(default = "default_flush_interval")]
     pub flush_interval_ms: u64,
-    
-    // Health check
-    pub health_port: u16,
-    
-    // Metrics
-    pub metrics_port: u16,
-    pub metrics_path: String,
-    
-    // Feature flags
-    pub capture_window_info: bool,
-    pub capture_modifiers: bool,
-    pub filter_passwords: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            service_name: "capture-service".to_string(),
-            user_id: "default-user".to_string(),
-            nats_url: "nats://localhost:4222".to_string(),
-            nats_subject: "keyai.events.capture".to_string(),
-            nats_user: None,
-            nats_password: None,
-            buffer_size: 1000,
-            batch_size: 100,
-            flush_interval_ms: 1000,
-            health_port: 8080,
-            metrics_port: 9090,
-            metrics_path: "/metrics".to_string(),
-            capture_window_info: true,
-            capture_modifiers: false,
-            filter_passwords: true,
-        }
-    }
 }
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        let mut config = config::Config::builder()
-            .add_source(config::Config::try_from(&Config::default())?)
-            .add_source(config::Environment::with_prefix("CAPTURE")
-                .separator("_")
-                .try_parsing(true))
-            .build()?;
-
-        // Handle special cases for optional fields
-        if let Ok(user) = std::env::var("CAPTURE_NATS_USER") {
-            config.set("nats_user", Some(user))?;
-        }
+        dotenv::dotenv().ok();
         
-        if let Ok(password) = std::env::var("CAPTURE_NATS_PASSWORD") {
-            config.set("nats_password", Some(password))?;
-        }
-
+        let mut config = config::Config::builder()
+            .add_source(config::Environment::with_prefix("CAPTURE"))
+            .build()?;
+        
         Ok(config.try_deserialize()?)
     }
+}
 
-    pub fn validate(&self) -> Result<()> {
-        if self.user_id.is_empty() {
-            anyhow::bail!("user_id cannot be empty");
-        }
-        
-        if self.buffer_size == 0 {
-            anyhow::bail!("buffer_size must be greater than 0");
-        }
-        
-        if self.batch_size > self.buffer_size {
-            anyhow::bail!("batch_size cannot be greater than buffer_size");
-        }
-        
-        Ok(())
-    }
+fn default_server_address() -> String {
+    "0.0.0.0:3001".to_string()
+}
+
+fn default_rabbitmq_url() -> String {
+    "amqp://guest:guest@localhost:5672".to_string()
+}
+
+fn default_redis_url() -> String {
+    "redis://localhost:6379".to_string()
+}
+
+fn default_jaeger_endpoint() -> String {
+    "http://localhost:4317".to_string()
+}
+
+fn default_service_name() -> String {
+    "capture-service".to_string()
+}
+
+fn default_log_level() -> String {
+    "info".to_string()
+}
+
+fn default_buffer_size() -> usize {
+    1000
+}
+
+fn default_flush_interval_ms() -> u64 {
+    1000
 }
 
 #[cfg(test)]

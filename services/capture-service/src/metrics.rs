@@ -3,6 +3,8 @@ use prometheus::{Encoder, TextEncoder, Registry};
 use std::convert::Infallible;
 use warp::{Filter, Rejection, Reply};
 use tracing::info;
+use prometheus::{Counter, Histogram, Registry};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub async fn run_metrics_server(port: u16, registry: Registry) -> Result<()> {
     let metrics_route = warp::path("metrics")
@@ -88,4 +90,95 @@ pub fn register_metrics(registry: &Registry) -> Result<()> {
     registry.register(Box::new(BUFFER_SIZE.clone()))?;
     
     Ok(())
+}
+
+pub struct Metrics {
+    events_captured: AtomicU64,
+    events_published: AtomicU64,
+    errors: AtomicU64,
+    
+    // Prometheus metrics
+    capture_counter: Counter,
+    publish_counter: Counter,
+    error_counter: Counter,
+    capture_latency: Histogram,
+    publish_latency: Histogram,
+}
+
+impl Metrics {
+    pub fn new() -> Self {
+        let registry = Registry::new();
+        
+        let capture_counter = Counter::new("capture_events_total", "Total events captured")
+            .expect("metric creation failed");
+        let publish_counter = Counter::new("capture_events_published", "Events published successfully")
+            .expect("metric creation failed");
+        let error_counter = Counter::new("capture_errors_total", "Total errors")
+            .expect("metric creation failed");
+        let capture_latency = Histogram::with_opts(
+            prometheus::HistogramOpts::new(
+                "capture_latency_seconds",
+                "Time to capture and process event"
+            ).buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1]),
+        ).expect("metric creation failed");
+        let publish_latency = Histogram::with_opts(
+            prometheus::HistogramOpts::new(
+                "publish_latency_seconds",
+                "Time to publish event to message queue"
+            ).buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1]),
+        ).expect("metric creation failed");
+        
+        // Register metrics
+        registry.register(Box::new(capture_counter.clone())).unwrap();
+        registry.register(Box::new(publish_counter.clone())).unwrap();
+        registry.register(Box::new(error_counter.clone())).unwrap();
+        registry.register(Box::new(capture_latency.clone())).unwrap();
+        registry.register(Box::new(publish_latency.clone())).unwrap();
+        
+        Self {
+            events_captured: AtomicU64::new(0),
+            events_published: AtomicU64::new(0),
+            errors: AtomicU64::new(0),
+            capture_counter,
+            publish_counter,
+            error_counter,
+            capture_latency,
+            publish_latency,
+        }
+    }
+    
+    pub fn increment_captured(&self) {
+        self.events_captured.fetch_add(1, Ordering::Relaxed);
+        self.capture_counter.inc();
+    }
+    
+    pub fn increment_published(&self) {
+        self.events_published.fetch_add(1, Ordering::Relaxed);
+        self.publish_counter.inc();
+    }
+    
+    pub fn increment_errors(&self) {
+        self.errors.fetch_add(1, Ordering::Relaxed);
+        self.error_counter.inc();
+    }
+    
+    pub fn get_captured(&self) -> u64 {
+        self.events_captured.load(Ordering::Relaxed)
+    }
+    
+    pub fn get_published(&self) -> u64 {
+        self.events_published.load(Ordering::Relaxed)
+    }
+    
+    pub fn get_errors(&self) -> u64 {
+        self.errors.load(Ordering::Relaxed)
+    }
+    
+    pub fn start_capture_timer(&self) -> prometheus::HistogramTimer {
+        self.capture_latency.start_timer()
+    }
+    
+    pub fn start_publish_timer(&self) -> prometheus::HistogramTimer {
+        self.publish_latency.start_timer()
+    }
 } 

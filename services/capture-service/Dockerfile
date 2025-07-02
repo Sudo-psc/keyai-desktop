@@ -1,64 +1,64 @@
 # Build stage
-FROM rust:1.75-alpine AS builder
+FROM rust:1.75-slim as builder
 
-# Install build dependencies
-RUN apk add --no-cache musl-dev openssl-dev pkgconfig
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libx11-dev \
+    libxi-dev \
+    libxtst-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
 
-# Build dependencies (this is cached as long as Cargo.toml doesn't change)
+# Build dependencies - this is the caching Docker layer!
 RUN mkdir src && \
     echo "fn main() {}" > src/main.rs && \
     cargo build --release && \
     rm -rf src
 
 # Copy source code
-COPY src ./src
+COPY . .
 
-# Build the actual application
-RUN cargo build --release
+# Build application
+RUN touch src/main.rs && \
+    cargo build --release
 
 # Runtime stage
-FROM alpine:3.19
+FROM debian:bookworm-slim
 
 # Install runtime dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libgcc \
-    libstdc++ \
-    openssl
+    libssl3 \
+    libx11-6 \
+    libxi6 \
+    libxtst6 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1000 keyai && \
-    adduser -D -u 1000 -G keyai keyai
+RUN useradd -m -u 1001 -U -s /bin/sh appuser
 
 # Copy binary from builder
-COPY --from=builder /usr/src/app/target/release/capture-service /usr/local/bin/capture-service
+COPY --from=builder /app/target/release/capture-service /usr/local/bin/capture-service
 
 # Set ownership
-RUN chown keyai:keyai /usr/local/bin/capture-service
+RUN chown appuser:appuser /usr/local/bin/capture-service
 
 # Switch to non-root user
-USER keyai
+USER appuser
 
-# Expose ports
-EXPOSE 8080 9090 50051
+# Expose port
+EXPOSE 3001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -q --spider http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:3001/health || exit 1
 
-# Environment variables with defaults
-ENV CAPTURE_SERVICE_NAME=capture-service \
-    CAPTURE_NATS_URL=nats://nats:4222 \
-    CAPTURE_NATS_SUBJECT=keyai.events.capture \
-    CAPTURE_HEALTH_PORT=8080 \
-    CAPTURE_METRICS_PORT=9090 \
-    RUST_LOG=capture_service=info
-
-# Run the service
-ENTRYPOINT ["/usr/local/bin/capture-service"] 
+# Run the binary
+ENTRYPOINT ["capture-service"] 

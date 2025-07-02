@@ -1,3 +1,5 @@
+// Health check is integrated into main.rs via the /health endpoint
+
 use anyhow::Result;
 use tonic::{transport::Server, Request, Response, Status};
 use tonic_health::server::{HealthReporter, HealthService, health_reporter};

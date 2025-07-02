@@ -1,19 +1,26 @@
 # Build stage
-FROM rust:1.78 as builder
+FROM rust:1.75-slim as builder
 
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
 WORKDIR /app
 
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
 
-# Build dependencies - this is cached
+# Build dependencies - this is the caching Docker layer!
 RUN mkdir src && \
     echo "fn main() {}" > src/main.rs && \
     cargo build --release && \
     rm -rf src
 
 # Copy source code
-COPY src ./src
+COPY . .
 
 # Build application
 RUN touch src/main.rs && \
@@ -26,27 +33,26 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN useradd -m -u 1000 keyai
+RUN useradd -m -u 1001 -U -s /bin/sh appuser
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/masker-service /usr/local/bin/masker-service
 
 # Set ownership
-RUN chown keyai:keyai /usr/local/bin/masker-service
+RUN chown appuser:appuser /usr/local/bin/masker-service
 
 # Switch to non-root user
-USER keyai
+USER appuser
 
 # Expose port
-EXPOSE 8002
+EXPOSE 3002
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8002/health || exit 1
+    CMD curl -f http://localhost:3002/health || exit 1
 
 # Run the binary
-CMD ["masker-service"] 
+ENTRYPOINT ["masker-service"] 

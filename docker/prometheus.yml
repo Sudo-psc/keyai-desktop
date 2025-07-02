@@ -44,12 +44,12 @@ scrape_configs:
         - 'search-service:9093'
     metrics_path: '/metrics'
 
-  # Analytics Service Metrics
-  - job_name: 'analytics-service'
-    static_configs:
-      - targets: 
-        - 'analytics-service:9094'
-    metrics_path: '/metrics'
+  # Analytics Service Metrics (comentado - serviço ainda não implementado)
+  # - job_name: 'analytics-service'
+  #   static_configs:
+  #     - targets: 
+  #       - 'analytics-service:9094'
+  #   metrics_path: '/metrics'
 
   # PostgreSQL Exporter
   - job_name: 'postgres'

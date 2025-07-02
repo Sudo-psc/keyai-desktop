@@ -1,244 +1,138 @@
 version: '3.8'
 
 services:
-  # Message Bus
-  nats:
-    image: nats:2.10-alpine
-    container_name: keyai-nats
-    ports:
-      - "4222:4222"  # Client connections
-      - "8222:8222"  # HTTP monitoring
-    command: ["--http_port", "8222", "--jetstream"]
-    volumes:
-      - nats-data:/data
-    networks:
-      - keyai-network
-
-  # API Gateway
-  kong:
-    image: kong:3.5-alpine
-    container_name: keyai-gateway
-    environment:
-      KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
-      KONG_PROXY_ACCESS_LOG: /dev/stdout
-      KONG_ADMIN_ACCESS_LOG: /dev/stdout
-      KONG_PROXY_ERROR_LOG: /dev/stderr
-      KONG_ADMIN_ERROR_LOG: /dev/stderr
-    ports:
-      - "8000:8000"  # Proxy
-      - "8001:8001"  # Admin API
-    volumes:
-      - ./kong.yml:/kong/kong.yml:ro
-    networks:
-      - keyai-network
-    depends_on:
-      - capture-service
-      - masking-service
-      - search-service
-
-  # PostgreSQL Database
+  # Core Services Only
   postgres:
-    image: postgres:16-alpine
-    container_name: keyai-postgres
+    image: postgres:15-alpine
     environment:
-      POSTGRES_DB: keyai
       POSTGRES_USER: keyai
-      POSTGRES_PASSWORD: keyai_secure_password
+      POSTGRES_PASSWORD: keyaipass
+      POSTGRES_DB: keyai
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks:
-      - keyai-network
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keyai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: keyai-redis
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    networks:
-      - keyai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Vector Database (Qdrant)
-  qdrant:
-    image: qdrant/qdrant
-    container_name: keyai-qdrant
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
     ports:
-      - "6333:6333"
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
     volumes:
-      - qdrant-data:/qdrant/storage
-    networks:
-      - keyai-network
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Capture Service
+  # Microservices
+  auth-service:
+    build: ../services/auth-service
+    ports:
+      - "3005:3005"
+    environment:
+      DATABASE_URL: postgres://keyai:keyaipass@postgres:5432/keyai
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-secret-key-change-in-production
+      SERVICE_NAME: auth-service
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   capture-service:
-    build:
-      context: ../services/capture-service
-      dockerfile: Dockerfile
-    container_name: keyai-capture
-    environment:
-      CAPTURE_USER_ID: ${USER_ID:-default-user}
-      CAPTURE_NATS_URL: nats://nats:4222
-      CAPTURE_NATS_SUBJECT: keyai.events.raw
-      RUST_LOG: info,capture_service=debug
+    build: ../services/capture-service
     ports:
-      - "8080:8080"  # Health
-      - "9090:9090"  # Metrics
-    networks:
-      - keyai-network
-    depends_on:
-      - nats
-    restart: unless-stopped
-
-  # Masking Service
-  masking-service:
-    build:
-      context: ../services/masking-service
-      dockerfile: Dockerfile
-    container_name: keyai-masking
+      - "3001:3001"
     environment:
-      MASKING_NATS_URL: nats://nats:4222
-      MASKING_INPUT_SUBJECT: keyai.events.raw
-      MASKING_OUTPUT_SUBJECT: keyai.events.masked
-      RUST_LOG: info,masking_service=debug
-    ports:
-      - "8081:8080"  # Health
-      - "9091:9090"  # Metrics
-    networks:
-      - keyai-network
+      CAPTURE_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      CAPTURE_REDIS_URL: redis://redis:6379
+      CAPTURE_SERVICE_NAME: capture-service
+      CAPTURE_LOG_LEVEL: info
     depends_on:
-      - nats
-      - redis
-    restart: unless-stopped
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # May need additional privileges for keyboard capture
+    privileged: true
+    volumes:
+      - /dev/input:/dev/input:ro
 
-  # Storage Service
+  masker-service:
+    build: ../services/masker-service
+    ports:
+      - "3002:3002"
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: masker-service
+      LOG_LEVEL: info
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   storage-service:
-    build:
-      context: ../services/storage-service
-      dockerfile: Dockerfile
-    container_name: keyai-storage
-    environment:
-      STORAGE_NATS_URL: nats://nats:4222
-      STORAGE_INPUT_SUBJECT: keyai.events.masked
-      STORAGE_DATABASE_URL: postgres://keyai:keyai_secure_password@postgres:5432/keyai
-      RUST_LOG: info,storage_service=debug
+    build: ../services/storage-service
     ports:
-      - "8082:8080"  # Health
-      - "9092:9090"  # Metrics
-    networks:
-      - keyai-network
+      - "3003:3003"
+    environment:
+      DATABASE_URL: postgres://keyai:keyaipass@postgres:5432/keyai
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      SERVICE_NAME: storage-service
+      LOG_LEVEL: info
     depends_on:
-      - nats
-      - postgres
-    restart: unless-stopped
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
-  # Search Service
   search-service:
-    build:
-      context: ../services/search-service
-      dockerfile: Dockerfile
-    container_name: keyai-search
-    environment:
-      SEARCH_DATABASE_URL: postgres://keyai:keyai_secure_password@postgres:5432/keyai
-      SEARCH_REDIS_URL: redis://redis:6379
-      SEARCH_QDRANT_URL: http://qdrant:6333
-      RUST_LOG: info,search_service=debug
+    build: ../services/search-service
     ports:
-      - "8083:8080"  # Health
-      - "9093:9090"  # Metrics
-      - "50052:50051"  # gRPC
-    networks:
-      - keyai-network
+      - "3004:3004"
+    environment:
+      DATABASE_URL: postgres://keyai:keyaipass@postgres:5432/keyai
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: search-service
+      LOG_LEVEL: info
     depends_on:
-      - postgres
-      - redis
-      - qdrant
-    restart: unless-stopped
-
-  # Analytics Service
-  analytics-service:
-    build:
-      context: ../services/analytics-service
-      dockerfile: Dockerfile
-    container_name: keyai-analytics
-    environment:
-      ANALYTICS_NATS_URL: nats://nats:4222
-      ANALYTICS_INPUT_SUBJECT: keyai.events.masked
-      ANALYTICS_DATABASE_URL: postgres://keyai:keyai_secure_password@postgres:5432/keyai
-      RUST_LOG: info,analytics_service=debug
-    ports:
-      - "8084:8080"  # Health
-      - "9094:9090"  # Metrics
-    networks:
-      - keyai-network
-    depends_on:
-      - nats
-      - postgres
-    restart: unless-stopped
-
-  # Monitoring Stack
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: keyai-prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-    ports:
-      - "9099:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    networks:
-      - keyai-network
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: keyai-grafana
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_ALLOW_SIGN_UP: false
-    ports:
-      - "3000:3000"
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
-    networks:
-      - keyai-network
-    depends_on:
-      - prometheus
-
-  # Distributed Tracing
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: keyai-jaeger
-    environment:
-      COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
-    ports:
-      - "5775:5775/udp"
-      - "6831:6831/udp"
-      - "6832:6832/udp"
-      - "5778:5778"
-      - "16686:16686"  # UI
-      - "14268:14268"
-      - "14250:14250"
-      - "9411:9411"
-    networks:
-      - keyai-network
-
-networks:
-  keyai-network:
-    driver: bridge
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
-  nats-data:
   postgres-data:
   redis-data:
-  qdrant-data:
-  prometheus-data:
-  grafana-data: 
+  rabbitmq-data:
+
+networks:
+  default:
+    name: keyai-dev-network 
