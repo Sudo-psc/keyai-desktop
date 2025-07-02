@@ -6,4 +6,4 @@ export { default as GlassCard } from './GlassCard';
 // Re-export types if needed
 export type { default as GlassButtonProps } from './GlassButton';
 export type { default as GlassInputProps } from './GlassInput';
-export type { default as GlassCardProps } from './GlassCard'; 
+export type { default as GlassCardProps } from './GlassCard';

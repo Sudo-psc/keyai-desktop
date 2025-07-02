@@ -13,37 +13,37 @@ pub struct Masker {
 impl Masker {
     pub fn new() -> Self {
         let mut patterns = HashMap::new();
-        
+
         // CPF pattern - matches xxx.xxx.xxx-xx or xxxxxxxxxxx
         patterns.insert(
             "cpf".to_string(),
             Regex::new(r"\b(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})\b").unwrap(),
         );
-        
+
         // Email pattern
         patterns.insert(
             "email".to_string(),
             Regex::new(r"\b([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b").unwrap(),
         );
-        
+
         // Phone pattern - Brazilian format
         patterns.insert(
             "phone".to_string(),
             Regex::new(r"\b\(?\d{2}\)?\s*\d{4,5}-?\d{4}\b").unwrap(),
         );
-        
+
         // Credit card pattern
         patterns.insert(
             "credit_card".to_string(),
             Regex::new(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b").unwrap(),
         );
-        
+
         Self { patterns }
     }
-    
+
     pub fn mask_text(&self, text: &str) -> String {
         let mut masked_text = text.to_string();
-        
+
         for (name, regex) in &self.patterns {
             masked_text = match name.as_str() {
                 "cpf" => {
@@ -71,7 +71,7 @@ impl Masker {
                 _ => masked_text,
             };
         }
-        
+
         masked_text
     }
 }
@@ -83,12 +83,12 @@ mod tests {
     #[test]
     fn test_cpf_masking() {
         let masker = Masker::new();
-        
+
         // Test formatted CPF
         let text = "Meu CPF é 123.456.789-01";
         let masked = masker.mask_text(text);
         assert_eq!(masked, "Meu CPF é ***.***.***-01");
-        
+
         // Test unformatted CPF
         let text = "CPF: 12345678901";
         let masked = masker.mask_text(text);
@@ -98,11 +98,11 @@ mod tests {
     #[test]
     fn test_email_masking() {
         let masker = Masker::new();
-        
+
         let text = "Meu email é joao@exemplo.com";
         let masked = masker.mask_text(text);
         assert_eq!(masked, "Meu email é j***@exemplo.com");
-        
+
         // Test short email
         let text = "a@b.com";
         let masked = masker.mask_text(text);
@@ -112,12 +112,12 @@ mod tests {
     #[test]
     fn test_phone_masking() {
         let masker = Masker::new();
-        
+
         // Test formatted phone
         let text = "Ligue para (11) 99999-1234";
         let masked = masker.mask_text(text);
         assert_eq!(masked, "Ligue para (***) ***-****");
-        
+
         // Test unformatted phone
         let text = "Tel: 11999991234";
         let masked = masker.mask_text(text);
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn test_credit_card_masking() {
         let masker = Masker::new();
-        
+
         let text = "Cartão: 1234 5678 9012 3456";
         let masked = masker.mask_text(text);
         assert_eq!(masked, "Cartão: **** **** **** ****");
@@ -136,10 +136,10 @@ mod tests {
     #[test]
     fn test_multiple_pii_masking() {
         let masker = Masker::new();
-        
+
         let text = "Cliente: João Silva, CPF: 123.456.789-00, Email: joao@example.com, Tel: (11) 98765-4321";
         let masked = masker.mask_text(text);
-        
+
         assert!(masked.contains("***.***.***-00"));
         assert!(masked.contains("j***@example.com"));
         assert!(masked.contains("(***) ***-****"));
@@ -148,9 +148,9 @@ mod tests {
     #[test]
     fn test_no_pii() {
         let masker = Masker::new();
-        
+
         let text = "Este é um texto sem informações pessoais";
         let masked = masker.mask_text(text);
         assert_eq!(masked, text);
     }
-} 
+}

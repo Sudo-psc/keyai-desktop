@@ -64,7 +64,7 @@ export default function SearchResults({ results, searchType }: SearchResultsProp
         {results.map((result) => {
           const isExpanded = expandedResults.has(result.id)
           const isHybrid = isHybridResult(result)
-          
+
           return (
             <div key={result.id} className="search-result">
               {/* Cabeçalho do Resultado */}
@@ -195,4 +195,4 @@ export default function SearchResults({ results, searchType }: SearchResultsProp
       )}
     </div>
   )
-} 
+}

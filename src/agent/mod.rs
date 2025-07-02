@@ -120,7 +120,7 @@ impl AgentMetrics {
         summary.insert("events_discarded".to_string(), self.events_discarded.load(Ordering::Relaxed));
         summary.insert("last_event_timestamp".to_string(), self.last_event_timestamp.load(Ordering::Relaxed));
         summary.insert("uptime_seconds".to_string(), self.uptime_start.load(Ordering::Relaxed) as u64);
-        
+
         summary
     }
 }
@@ -171,13 +171,13 @@ impl Agent {
         #[cfg(target_os = "macos")]
         {
             info!("🔍 Verificando permissões de acessibilidade no macOS...");
-            
+
             // Tentativa simples de verificar se temos permissões
             // Vamos tentar capturar um evento de teste
             let test_result = std::panic::catch_unwind(|| {
                 // Teste rápido para ver se o rdev funciona
                 let (tx, _rx) = std::sync::mpsc::channel();
-                
+
                 // Timeout muito curto para teste
                 let start = std::time::Instant::now();
                 std::thread::spawn(move || {
@@ -187,12 +187,12 @@ impl Agent {
                         // Erro esperado se não houver permissões
                     }
                 });
-                
+
                 // Aguarda um pouco para ver se há erro imediato
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 start.elapsed() < std::time::Duration::from_millis(200)
             });
-            
+
             match test_result {
                 Ok(_) => {
                     info!("✅ Permissões de acessibilidade parecem estar OK");
@@ -205,13 +205,13 @@ impl Agent {
                 }
             }
         }
-        
+
         #[cfg(not(target_os = "macos"))]
         {
             true
         }
     }
-    
+
     /// Mostra diálogo de permissões para macOS
     #[cfg(target_os = "macos")]
     pub fn show_macos_permission_dialog() {
@@ -220,7 +220,7 @@ impl Agent {
         error!("   2. Clique em 'Acessibilidade' na barra lateral");
         error!("   3. Adicione 'KeyAI Desktop' à lista de apps permitidos");
         error!("   4. Reinicie o aplicativo após conceder as permissões");
-        
+
         // Tentar abrir as configurações automaticamente
         std::process::Command::new("open")
             .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
@@ -237,7 +237,7 @@ impl Agent {
                     })
             });
     }
-    
+
     #[cfg(not(target_os = "macos"))]
     pub fn show_macos_permission_dialog() {
         // Não faz nada em outras plataformas
@@ -251,29 +251,29 @@ impl Agent {
         }
 
         info!("🎯 Iniciando agente de captura de teclas...");
-        
+
         // Check permissions first
         if !Self::check_permissions() {
             return Err(anyhow!("Permissões insuficientes para captura de teclas"));
         }
-        
+
         // Reset shutdown signal
         self.shutdown_signal.store(false, Ordering::Relaxed);
-        
+
         // Set uptime start
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         self.metrics.uptime_start.store(now, Ordering::Relaxed);
-        
+
         // Create channel for key events
         let (tx, rx) = mpsc::unbounded_channel::<KeyEvent>();
         self.event_sender = Some(tx.clone());
-        
+
         // Start event processing task
         self.start_event_processor(rx).await?;
-        
+
         // Start window detection task if enabled
         let config = self.config.read().await;
         if config.enable_window_detection {
@@ -303,7 +303,7 @@ impl Agent {
                 warn!("🔧 Aplicação continuará em modo degradado sem captura de teclas");
             }
         }
-        
+
         // Mark as running after successful initialization
         self.is_running.store(true, Ordering::Relaxed);
 
@@ -319,7 +319,7 @@ impl Agent {
         }
 
         info!("🛑 Parando agente de captura...");
-        
+
         // Signal shutdown to all tasks
         self.shutdown_signal.store(true, Ordering::Relaxed);
         self.is_running.store(false, Ordering::Relaxed);
@@ -378,7 +378,7 @@ impl Agent {
                     Ok(Some(event)) => {
                         trace!("📝 Evento recebido: {:?}", event);
                         metrics.events_captured.fetch_add(1, Ordering::Relaxed);
-                        
+
                         // Check if event should be filtered
                         let config_guard = config.read().await;
                         if Self::should_filter_event(&event, &config_guard) {
@@ -394,7 +394,7 @@ impl Agent {
 
                         // Check if we need to flush
                         let config_guard = config.read().await;
-                        let should_flush = buffer.len() >= config_guard.buffer_size || 
+                        let should_flush = buffer.len() >= config_guard.buffer_size ||
                                          last_flush.elapsed() >= Duration::from_secs(config_guard.flush_interval_secs);
                         drop(config_guard);
 
@@ -437,11 +437,11 @@ impl Agent {
 
                 if let Some(window_info) = Self::get_active_window_info() {
                     let mut current = current_window.write().await;
-                    
+
                     // Only update if window changed
                     let should_update = match &*current {
                         Some(current_info) => {
-                            current_info.title != window_info.title || 
+                            current_info.title != window_info.title ||
                             current_info.application != window_info.application
                         }
                         None => true,
@@ -470,11 +470,11 @@ impl Agent {
         #[cfg(target_os = "macos")]
         {
             info!("🎯 Iniciando listener de teclas para macOS...");
-            
+
             // Simplificado para evitar problemas com catch_unwind
             std::thread::spawn(move || {
                 info!("🔍 Tentando iniciar captura de teclas no macOS...");
-                
+
                 match listen(move |event| {
                     if shutdown_signal.load(Ordering::Relaxed) {
                         return;
@@ -494,7 +494,7 @@ impl Agent {
                         error!("   2. Clique em 'Acessibilidade' na barra lateral");
                         error!("   3. Adicione 'Terminal' ou 'KeyAI Desktop' à lista de apps permitidos");
                         error!("   4. Reinicie o aplicativo após conceder as permissões");
-                        
+
                         // Tentar abrir as configurações
                         let _ = std::process::Command::new("open")
                             .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
@@ -503,7 +503,7 @@ impl Agent {
                 }
             });
         }
-        
+
         // Para outras plataformas, usa a implementação original
         #[cfg(not(target_os = "macos"))]
         {
@@ -543,7 +543,7 @@ impl Agent {
 
             while !shutdown_signal.load(Ordering::Relaxed) {
                 interval_timer.tick().await;
-                
+
                 let summary = metrics.get_summary();
                 info!("📊 Métricas do Agente: {:?}", summary);
             }
@@ -554,7 +554,7 @@ impl Agent {
 
     /// Processa evento do rdev
     fn handle_rdev_event(
-        event: Event, 
+        event: Event,
         sender: &mpsc::UnboundedSender<KeyEvent>,
         current_window: &Arc<RwLock<Option<WindowInfo>>>
     ) -> Result<()> {
@@ -636,8 +636,8 @@ impl Agent {
 
     /// Flush eventos para o banco de dados
     async fn flush_events(
-        database: &Arc<Database>, 
-        buffer: &mut Vec<KeyEvent>, 
+        database: &Arc<Database>,
+        buffer: &mut Vec<KeyEvent>,
         metrics: &Arc<AgentMetrics>
     ) {
         if buffer.is_empty() {
@@ -655,7 +655,7 @@ impl Agent {
                 metrics.events_discarded.fetch_add(buffer.len() as u64, Ordering::Relaxed);
             }
         }
-        
+
         buffer.clear();
     }
 
@@ -671,7 +671,7 @@ impl Agent {
             Key::ShiftRight => "ShiftRight".to_string(),
             Key::MetaLeft => "MetaLeft".to_string(),
             Key::MetaRight => "MetaRight".to_string(),
-            
+
             // Function keys
             Key::F1 => "F1".to_string(),
             Key::F2 => "F2".to_string(),
@@ -685,7 +685,7 @@ impl Agent {
             Key::F10 => "F10".to_string(),
             Key::F11 => "F11".to_string(),
             Key::F12 => "F12".to_string(),
-            
+
             // Special keys
             Key::Backspace => "Backspace".to_string(),
             Key::CapsLock => "CapsLock".to_string(),
@@ -707,7 +707,7 @@ impl Agent {
             Key::Pause => "Pause".to_string(),
             Key::NumLock => "NumLock".to_string(),
             Key::Insert => "Insert".to_string(),
-            
+
             // Number row
             Key::BackQuote => "`".to_string(),
             Key::Num1 => "1".to_string(),
@@ -722,7 +722,7 @@ impl Agent {
             Key::Num0 => "0".to_string(),
             Key::Minus => "-".to_string(),
             Key::Equal => "=".to_string(),
-            
+
             // Letters
             Key::KeyQ => "q".to_string(),
             Key::KeyW => "w".to_string(),
@@ -759,7 +759,7 @@ impl Agent {
             Key::Comma => ",".to_string(),
             Key::Dot => ".".to_string(),
             Key::Slash => "/".to_string(),
-            
+
             // Keypad
             Key::KpReturn => "KpReturn".to_string(),
             Key::KpMinus => "Kp-".to_string(),
@@ -777,7 +777,7 @@ impl Agent {
             Key::Kp8 => "Kp8".to_string(),
             Key::Kp9 => "Kp9".to_string(),
             Key::KpDelete => "KpDelete".to_string(),
-            
+
             // Other
             Key::Function => "Function".to_string(),
             Key::Unknown(code) => format!("Unknown({})", code),
@@ -786,8 +786,8 @@ impl Agent {
 
     /// Verifica se é uma tecla modificadora
     fn is_modifier_key(key: Key) -> bool {
-        matches!(key, 
-            Key::Alt | Key::AltGr | 
+        matches!(key,
+            Key::Alt | Key::AltGr |
             Key::ControlLeft | Key::ControlRight |
             Key::ShiftLeft | Key::ShiftRight |
             Key::MetaLeft | Key::MetaRight |
@@ -797,7 +797,7 @@ impl Agent {
 
     /// Verifica se é uma tecla de função
     fn is_function_key(key: Key) -> bool {
-        matches!(key, 
+        matches!(key,
             Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::F5 | Key::F6 |
             Key::F7 | Key::F8 | Key::F9 | Key::F10 | Key::F11 | Key::F12
         )
@@ -916,7 +916,7 @@ impl Agent {
             }
 
             let root = XDefaultRootWindow(display);
-            
+
             // Get active window
             let mut active_window = 0;
             let mut actual_type = 0;
@@ -1072,7 +1072,7 @@ mod tests {
     async fn test_agent_creation() {
         let masker = Masker::new();
         let database = create_test_database().await.unwrap();
-        
+
         let agent = Agent::new(masker, database).await.unwrap();
         assert!(!agent.is_running());
     }
@@ -1086,10 +1086,10 @@ mod tests {
             capture_modifiers: false,
             ..Default::default()
         };
-        
+
         let agent = Agent::with_config(masker, database, config.clone()).await.unwrap();
         let retrieved_config = agent.get_config().await;
-        
+
         assert_eq!(retrieved_config.buffer_size, 50);
         assert!(!retrieved_config.capture_modifiers);
     }
@@ -1098,22 +1098,22 @@ mod tests {
     async fn test_agent_start_stop() {
         let masker = Masker::new();
         let database = create_test_database().await.unwrap();
-        
+
         let mut agent = Agent::new(masker, database).await.unwrap();
-        
+
         // Test starting agent
         assert!(!agent.is_running());
         agent.start().await.unwrap();
         assert!(agent.is_running());
-        
+
         // Test starting already running agent
         let result = agent.start().await;
         assert!(result.is_ok()); // Should not error, just warn
-        
+
         // Test stopping agent
         agent.stop().await.unwrap();
         assert!(!agent.is_running());
-        
+
         // Test stopping already stopped agent
         let result = agent.stop().await;
         assert!(result.is_ok()); // Should not error, just warn
@@ -1204,10 +1204,10 @@ mod tests {
     async fn test_metrics() {
         let masker = Masker::new();
         let database = create_test_database().await.unwrap();
-        
+
         let agent = Agent::new(masker, database).await.unwrap();
         let metrics = agent.get_metrics();
-        
+
         assert_eq!(metrics.get("events_captured").unwrap_or(&0), &0);
         assert_eq!(metrics.get("events_processed").unwrap_or(&0), &0);
         assert!(metrics.contains_key("uptime_seconds"));
@@ -1217,18 +1217,18 @@ mod tests {
     async fn test_config_update() {
         let masker = Masker::new();
         let database = create_test_database().await.unwrap();
-        
+
         let agent = Agent::new(masker, database).await.unwrap();
-        
+
         let new_config = AgentConfig {
             buffer_size: 200,
             flush_interval_secs: 10,
             ..Default::default()
         };
-        
+
         agent.update_config(new_config.clone()).await.unwrap();
         let retrieved_config = agent.get_config().await;
-        
+
         assert_eq!(retrieved_config.buffer_size, 200);
         assert_eq!(retrieved_config.flush_interval_secs, 10);
     }
@@ -1237,19 +1237,19 @@ mod tests {
     fn test_handle_rdev_event() {
         use std::sync::Arc;
         use tokio::sync::RwLock;
-        
+
         let (tx, mut rx) = mpsc::unbounded_channel::<KeyEvent>();
         let current_window = Arc::new(RwLock::new(None));
-        
+
         // Test key press event
         let event = Event {
             time: SystemTime::now(),
             name: None,
             event_type: EventType::KeyPress(Key::KeyA),
         };
-        
+
         Agent::handle_rdev_event(event, &tx, &current_window).unwrap();
-        
+
         let received = rx.try_recv();
         assert!(received.is_ok());
         let key_event = received.unwrap();

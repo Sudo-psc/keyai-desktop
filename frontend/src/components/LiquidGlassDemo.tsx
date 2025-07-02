@@ -11,7 +11,7 @@ const LiquidGlassDemo: React.FC = () => {
           <h1 className="text-2xl font-bold gradient-text">key.ai</h1>
           <p className="text-gray-light text-sm mt-1">Desktop Search</p>
         </div>
-        
+
         <nav className="space-y-2">
           <a href="#" className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors">
             <Search className="w-5 h-5 text-electric-blue" />
@@ -36,13 +36,13 @@ const LiquidGlassDemo: React.FC = () => {
             <Search className="w-6 h-6 text-electric-blue" />
             <h2 className="text-xl font-semibold text-white">Busca Inteligente</h2>
           </div>
-          
+
           <input
             type="text"
             placeholder="Digite para buscar em seu histórico..."
             className="glass-input w-full mb-4"
           />
-          
+
           <div className="flex gap-3">
             <button className="glass-button">
               Busca Textual
@@ -62,7 +62,7 @@ const LiquidGlassDemo: React.FC = () => {
             </div>
             <p className="text-gray-light">Palavras Registradas</p>
           </div>
-          
+
           <div className="floating-card">
             <div className="flex items-center justify-between mb-3">
               <Clock className="w-8 h-8 text-mint-green" />
@@ -70,7 +70,7 @@ const LiquidGlassDemo: React.FC = () => {
             </div>
             <p className="text-gray-light">Histórico Ativo</p>
           </div>
-          
+
           <div className="floating-card">
             <div className="flex items-center justify-between mb-3">
               <Shield className="w-8 h-8 text-electric-blue" />
@@ -98,4 +98,4 @@ const LiquidGlassDemo: React.FC = () => {
   );
 };
 
-export default LiquidGlassDemo; 
+export default LiquidGlassDemo;

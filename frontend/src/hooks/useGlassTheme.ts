@@ -89,9 +89,9 @@ const darkTheme: GlassTheme = {
 
 export const useGlassTheme = () => {
   const [isDark, setIsDark] = useState(true); // Default to dark theme
-  
+
   const theme = isDark ? darkTheme : lightTheme;
-  
+
   // Load theme preference from localStorage
   useEffect(() => {
     const savedTheme = localStorage.getItem('keyai-theme');
@@ -103,22 +103,22 @@ export const useGlassTheme = () => {
       setIsDark(prefersDark);
     }
   }, []);
-  
+
   // Save theme preference and apply to document
   useEffect(() => {
     localStorage.setItem('keyai-theme', isDark ? 'dark' : 'light');
     document.documentElement.classList.toggle('dark', isDark);
     document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
   }, [isDark]);
-  
+
   const toggleTheme = useCallback(() => {
     setIsDark(prev => !prev);
   }, []);
-  
+
   const setTheme = useCallback((theme: 'light' | 'dark') => {
     setIsDark(theme === 'dark');
   }, []);
-  
+
   // CSS custom properties for dynamic theming
   const cssVariables = {
     '--color-background': theme.colors.background,
@@ -139,7 +139,7 @@ export const useGlassTheme = () => {
     '--backdrop-blur-lg': theme.blur.lg,
     '--backdrop-blur-xl': theme.blur.xl,
   };
-  
+
   // Apply CSS variables to document
   useEffect(() => {
     const root = document.documentElement;
@@ -147,19 +147,19 @@ export const useGlassTheme = () => {
       root.style.setProperty(property, String(value));
     });
   }, [theme]);
-  
+
   // Utility functions for glass effects
   const getGlassStyle = (variant: 'low' | 'medium' | 'high' = 'medium') => ({
-    backgroundColor: isDark 
-      ? `rgba(28, 28, 30, ${theme.opacity[variant]})` 
+    backgroundColor: isDark
+      ? `rgba(28, 28, 30, ${theme.opacity[variant]})`
       : `rgba(255, 255, 255, ${theme.opacity[variant]})`,
     backdropFilter: `blur(${theme.blur.md})`,
     WebkitBackdropFilter: `blur(${theme.blur.md})`,
-    border: isDark 
-      ? '1px solid rgba(255, 255, 255, 0.1)' 
+    border: isDark
+      ? '1px solid rgba(255, 255, 255, 0.1)'
       : '1px solid rgba(0, 0, 0, 0.1)',
   });
-  
+
   const getShadowStyle = (variant: 'soft' | 'glow' = 'soft') => {
     if (variant === 'glow') {
       return {
@@ -168,14 +168,14 @@ export const useGlassTheme = () => {
           : '0 8px 32px rgba(0, 0, 0, 0.1), 0 0 40px rgba(0, 122, 255, 0.2)',
       };
     }
-    
+
     return {
       boxShadow: isDark
         ? '0 8px 32px rgba(0, 0, 0, 0.4)'
         : '0 8px 32px rgba(0, 0, 0, 0.1)',
     };
   };
-  
+
   return {
     theme,
     isDark,
@@ -185,4 +185,4 @@ export const useGlassTheme = () => {
     getGlassStyle,
     getShadowStyle,
   };
-}; 
+};

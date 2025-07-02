@@ -47,4 +47,4 @@ fn mask_email(email: &str) -> String {
 
 fn mask_phone(phone: &str) -> String {
     "(***) ***-****".to_string()
-} 
+}

@@ -45,4 +45,4 @@ export function useSettings() {
   }
 }
 
-export default useSettings 
+export default useSettings

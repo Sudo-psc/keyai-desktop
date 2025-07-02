@@ -24,21 +24,21 @@ const GlassCard: React.FC<GlassCardProps> = ({
   ...props
 }) => {
   const baseClasses = 'floating-card';
-  
+
   const variantClasses = {
     default: '',
     primary: 'floating-card-primary',
     success: 'floating-card-success'
   };
-  
+
   const sizeClasses = {
     sm: 'p-3',
     md: 'p-4',
     lg: 'p-6'
   };
-  
+
   const hoverClasses = hoverable ? 'hover-lift cursor-pointer' : '';
-  
+
   const classes = [
     baseClasses,
     variantClasses[variant],
@@ -46,7 +46,7 @@ const GlassCard: React.FC<GlassCardProps> = ({
     hoverClasses,
     className
   ].filter(Boolean).join(' ');
-  
+
   return (
     <div className={classes} {...props}>
       {(Icon || title || subtitle) && (
@@ -58,8 +58,8 @@ const GlassCard: React.FC<GlassCardProps> = ({
               ${variant === 'success' ? 'bg-mint-green/20' : ''}
               ${variant === 'default' ? 'bg-white/10' : ''}
             `}>
-              <Icon 
-                size={20} 
+              <Icon
+                size={20}
                 className={`
                   ${variant === 'primary' ? 'text-electric-blue' : ''}
                   ${variant === 'success' ? 'text-mint-green' : ''}
@@ -68,7 +68,7 @@ const GlassCard: React.FC<GlassCardProps> = ({
               />
             </div>
           )}
-          
+
           <div className="flex-1">
             {title && (
               <h3 className="text-heading text-primary font-semibold">
@@ -83,7 +83,7 @@ const GlassCard: React.FC<GlassCardProps> = ({
           </div>
         </div>
       )}
-      
+
       {children && (
         <div className="text-body text-primary">
           {children}
@@ -93,4 +93,4 @@ const GlassCard: React.FC<GlassCardProps> = ({
   );
 };
 
-export default GlassCard; 
+export default GlassCard;

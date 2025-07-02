@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/tauri'
-import { 
-  Database, 
-  HardDrive, 
-  Activity, 
-  Calendar, 
-  Trash2, 
+import {
+  Database,
+  HardDrive,
+  Activity,
+  Calendar,
+  Trash2,
   AlertCircle,
   TrendingUp,
   Clock,
@@ -95,7 +95,7 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
           <Activity className="w-5 h-5 mr-2 text-primary-500" />
           Status do Sistema
         </h3>
-        
+
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm text-slate-400">Agente de Captura</span>
@@ -105,7 +105,7 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
               {stats.agent.is_running ? 'Ativo' : 'Inativo'}
             </span>
           </div>
-          
+
           {stats.agent.is_running && (
             <>
               <div className="flex items-center justify-between">
@@ -114,7 +114,7 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
                   {Math.floor(stats.agent.uptime_seconds / 3600)}h {Math.floor((stats.agent.uptime_seconds % 3600) / 60)}m
                 </span>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">Eventos Capturados</span>
                 <span className="text-sm font-medium">
@@ -132,7 +132,7 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
           <Database className="w-5 h-5 mr-2 text-primary-500" />
           Banco de Dados
         </h3>
-        
+
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm text-slate-400">Total de Eventos</span>
@@ -140,21 +140,21 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
               {stats.database.total_events.toLocaleString('pt-BR')}
             </span>
           </div>
-          
+
           <div className="flex items-center justify-between">
             <span className="text-sm text-slate-400">Tamanho</span>
             <span className="text-sm font-medium">
               {formatBytes(stats.database.total_size_bytes)}
             </span>
           </div>
-          
+
           {stats.database.oldest_event && (
             <div className="pt-3 border-t border-slate-700">
               <div className="flex items-center mb-2">
                 <Calendar className="w-4 h-4 mr-2 text-slate-400" />
                 <span className="text-sm text-slate-400">Período de Dados</span>
               </div>
-              
+
               <div className="text-xs space-y-1">
                 <div>
                   <span className="text-slate-500">Mais antigo: </span>
@@ -181,7 +181,7 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
             <TrendingUp className="w-5 h-5 mr-2 text-primary-500" />
             Buscas Populares
           </h3>
-          
+
           <div className="space-y-2">
             {popularSearches.map((search, index) => (
               <div key={index} className="flex items-center text-sm">
@@ -199,7 +199,7 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
           <Settings className="w-5 h-5 mr-2 text-primary-500" />
           Ações
         </h3>
-        
+
         <div className="space-y-3">
           <button
             onClick={async () => {
@@ -215,7 +215,7 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
             <HardDrive className="w-4 h-4 mr-2" />
             Otimizar Índices
           </button>
-          
+
           {showClearConfirm ? (
             <div className="space-y-2">
               <p className="text-sm text-red-400 text-center">
@@ -256,4 +256,4 @@ export default function StatusPanel({ stats, onRefresh }: StatusPanelProps) {
       </div>
     </div>
   )
-} 
+}

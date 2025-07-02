@@ -13,7 +13,7 @@ async fn test_full_flow_integration() {
     let search_engine = Arc::new(SearchEngine::new(database.clone()).await.unwrap());
     let masker = Masker::new();
     let agent = Arc::new(Mutex::new(Agent::new(masker.clone(), database.clone()).await.unwrap()));
-    
+
     let _app_state = AppState {
         agent,
         database: database.clone(),
@@ -99,16 +99,16 @@ async fn test_full_flow_integration() {
         .into_iter()
         .map(|e| masker.mask_event(e))
         .collect();
-    
+
     database.store_events(&masked_events).await.unwrap();
 
     // Test search functionality
     let options = SearchOptions::default();
     let results = search_engine.search_text("email", &options).await.unwrap();
-    
+
     // Should find results related to email
     assert!(!results.is_empty());
-    
+
     // Verify PII was masked
     let all_events = database.search_by_timerange(0, u64::MAX, 100).await.unwrap();
     for event in all_events {
@@ -122,11 +122,11 @@ async fn test_full_flow_integration() {
 async fn test_database_persistence() {
     let temp_file = NamedTempFile::new().unwrap();
     let path = temp_file.path().to_path_buf();
-    
+
     // First session - store data
     {
         let database = Arc::new(Database::new(&path).await.unwrap());
-        
+
         let events = vec![
             KeyEvent {
                 timestamp: 1000,
@@ -136,20 +136,20 @@ async fn test_database_persistence() {
                 application: None,
             },
         ];
-        
+
         database.store_events(&events).await.unwrap();
-        
+
         let stats = database.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 1);
     }
-    
+
     // Second session - verify data persists
     {
         let database = Arc::new(Database::new(&path).await.unwrap());
-        
+
         let stats = database.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 1);
-        
+
         let events = database.search_by_timerange(0, u64::MAX, 10).await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].key, "persistent");
@@ -161,7 +161,7 @@ async fn test_search_with_special_characters() {
     let temp_file = NamedTempFile::new().unwrap();
     let database = Arc::new(Database::new(temp_file.path()).await.unwrap());
     let search_engine = Arc::new(SearchEngine::new(database.clone()).await.unwrap());
-    
+
     // Store events with special characters
     let events = vec![
         KeyEvent {
@@ -179,13 +179,13 @@ async fn test_search_with_special_characters() {
             application: None,
         },
     ];
-    
+
     database.store_events(&events).await.unwrap();
-    
+
     // Search should handle special characters
     let options = SearchOptions::default();
     let results = search_engine.search_text("test", &options).await.unwrap();
-    
+
     assert_eq!(results.len(), 2);
 }
 
@@ -193,10 +193,10 @@ async fn test_search_with_special_characters() {
 async fn test_concurrent_access() {
     let temp_file = NamedTempFile::new().unwrap();
     let database = Arc::new(Database::new(temp_file.path()).await.unwrap());
-    
+
     // Spawn multiple tasks writing to database
     let mut handles = vec![];
-    
+
     for i in 0..5 {
         let db = database.clone();
         let handle = tokio::spawn(async move {
@@ -213,12 +213,12 @@ async fn test_concurrent_access() {
         });
         handles.push(handle);
     }
-    
+
     // Wait for all tasks
     for handle in handles {
         handle.await.unwrap();
     }
-    
+
     // Verify all events were stored
     let stats = database.get_stats().await.unwrap();
     assert_eq!(stats.total_events, 5);
@@ -228,7 +228,7 @@ async fn test_concurrent_access() {
 async fn test_large_batch_insert() {
     let temp_file = NamedTempFile::new().unwrap();
     let database = Arc::new(Database::new(temp_file.path()).await.unwrap());
-    
+
     // Create a large batch of events
     let mut events = Vec::new();
     for i in 0..1000 {
@@ -240,10 +240,10 @@ async fn test_large_batch_insert() {
             application: Some("Test App".to_string()),
         });
     }
-    
+
     // Store and verify
     database.store_events(&events).await.unwrap();
-    
+
     let stats = database.get_stats().await.unwrap();
     assert_eq!(stats.total_events, 1000);
-} 
+}

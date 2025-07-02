@@ -107,7 +107,7 @@ async fn main() {
             commands::search_hybrid,
             commands::get_search_suggestions,
             commands::get_popular_searches,
-            
+
             // Comandos do agente
             commands::toggle_agent,
             commands::get_agent_status,
@@ -115,13 +115,13 @@ async fn main() {
             commands::get_agent_config,
             commands::get_current_window,
             commands::get_agent_metrics,
-            
+
             // Comandos de dados
             commands::get_stats,
             commands::clear_data,
             commands::export_data,
             commands::import_data,
-            
+
             // Comandos de sistema
             commands::optimize_search_index,
             commands::health_check,
@@ -129,21 +129,21 @@ async fn main() {
         .setup(|app| {
             info!("✅ Aplicação Tauri inicializada");
             debug!("🔧 Configurando handlers de eventos");
-            
+
             // Configurar handlers de eventos de janela
             let app_handle = app.handle();
-            
+
             // Handler para quando a janela é fechada
             app.listen_global("tauri://close-requested", move |_event| {
                 info!("🔄 Aplicação sendo fechada graciosamente...");
                 // TODO: Implementar graceful shutdown do agente
             });
-            
+
             // Handler para erros não capturados
             app.listen_global("tauri://error", move |event| {
                 error!("❌ Erro não capturado na aplicação: {:?}", event);
             });
-            
+
             Ok(())
         })
         .run(tauri::generate_context!());

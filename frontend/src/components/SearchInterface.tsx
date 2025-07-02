@@ -13,7 +13,7 @@ const SearchInterface: React.FC = () => {
 
   const handleSearch = async () => {
     if (!query.trim()) return
-    
+
     try {
       await search(query, searchType)
     } catch (error) {
@@ -70,7 +70,7 @@ const SearchInterface: React.FC = () => {
               >
                 Busca Textual
               </GlassButton>
-              
+
               <GlassButton
                 variant={searchType === 'semantic' ? 'primary' : 'secondary'}
                 size="sm"
@@ -79,7 +79,7 @@ const SearchInterface: React.FC = () => {
               >
                 Busca Semântica
               </GlassButton>
-              
+
               <GlassButton
                 variant={searchType === 'hybrid' ? 'success' : 'secondary'}
                 size="sm"
@@ -145,7 +145,7 @@ const SearchInterface: React.FC = () => {
           <History className="w-5 h-5 text-secondary" />
           <h3 className="text-heading font-medium">Buscas Rápidas</h3>
         </div>
-        
+
         <div className="flex flex-wrap gap-2">
           {[
             'senhas salvas',
@@ -158,7 +158,7 @@ const SearchInterface: React.FC = () => {
             <button
               key={suggestion}
               onClick={() => setQuery(suggestion)}
-              className="px-3 py-1 text-small rounded-full bg-white/5 hover:bg-white/10 
+              className="px-3 py-1 text-small rounded-full bg-white/5 hover:bg-white/10
                          text-secondary hover:text-primary transition-all duration-200
                          border border-white/10 hover:border-white/20"
             >
@@ -184,4 +184,4 @@ const SearchInterface: React.FC = () => {
   )
 }
 
-export default SearchInterface 
+export default SearchInterface

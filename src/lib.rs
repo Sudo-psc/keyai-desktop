@@ -22,11 +22,11 @@ impl AppState {
         let search_engine = Arc::new(search::SearchEngine::new(database.clone()).await?);
         let masker = masker::Masker::new();
         let agent = Arc::new(Mutex::new(agent::Agent::new(masker, database.clone()).await?));
-        
+
         Ok(Self {
             database,
             search_engine,
             agent,
         })
     }
-} 
+}

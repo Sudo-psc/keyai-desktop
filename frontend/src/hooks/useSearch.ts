@@ -89,4 +89,4 @@ export function useSearch(options?: UseSearchOptions) {
   }
 }
 
-export default useSearch 
+export default useSearch

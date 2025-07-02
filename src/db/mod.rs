@@ -44,37 +44,37 @@ pub struct Database {
 impl Database {
     pub async fn new<P: AsRef<Path>>(db_path: P) -> Result<Self> {
         info!("🗄️ Inicializando banco de dados: {:?}", db_path.as_ref());
-        
+
         let conn = Connection::open(db_path)?;
-        
+
         // Set SQLCipher password (in production, this should come from secure storage)
         // Temporarily disabled for debugging - uncomment when SQLCipher is properly configured
         // conn.execute("PRAGMA key = 'keyai-desktop-secret-key'", [])?;
-        
+
         // Enable WAL mode for better concurrency
         let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
-        
+
         // Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON", [])?;
-        
+
         // Optimize for performance
         conn.execute("PRAGMA synchronous = NORMAL", [])?;
         conn.execute("PRAGMA cache_size = 10000", [])?;
         conn.execute("PRAGMA temp_store = MEMORY", [])?;
-        
+
         let database = Self {
             connection: Arc::new(Mutex::new(conn)),
         };
-        
+
         database.initialize_schema().await?;
-        
+
         info!("✅ Banco de dados inicializado com sucesso");
         Ok(database)
     }
 
     async fn initialize_schema(&self) -> Result<()> {
         let conn = self.connection.lock().await;
-        
+
         // Create events table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS events (
@@ -186,7 +186,7 @@ impl Database {
             };
 
             tx.execute(
-                "INSERT OR IGNORE INTO events 
+                "INSERT OR IGNORE INTO events
                 (timestamp, key, event_type, window_title, application, text_content)
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
@@ -207,9 +207,9 @@ impl Database {
 
     pub async fn search_text(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
         let conn = self.connection.lock().await;
-        
+
         let mut stmt = conn.prepare(
-            "SELECT e.id, e.text_content, e.timestamp, 
+            "SELECT e.id, e.text_content, e.timestamp,
                     rank, e.application, e.window_title
              FROM text_search ts
              JOIN events e ON e.id = ts.rowid
@@ -239,7 +239,7 @@ impl Database {
 
     pub async fn search_by_timerange(&self, start_timestamp: u64, end_timestamp: u64, limit: usize) -> Result<Vec<StoredEvent>> {
         let conn = self.connection.lock().await;
-        
+
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, key, event_type, window_title, application, text_content, created_at
              FROM events
@@ -272,7 +272,7 @@ impl Database {
 
     pub async fn get_stats(&self) -> Result<DatabaseStats> {
         let conn = self.connection.lock().await;
-        
+
         let total_events: i64 = conn.query_row(
             "SELECT COUNT(*) FROM events",
             [],
@@ -307,21 +307,21 @@ impl Database {
 
     pub async fn clear_all_data(&self) -> Result<()> {
         let conn = self.connection.lock().await;
-        
+
         conn.execute("DELETE FROM embeddings", [])?;
         conn.execute("DELETE FROM events", [])?;
         conn.execute("DELETE FROM text_search", [])?;
-        
+
         // Vacuum to reclaim space
         conn.execute("VACUUM", [])?;
-        
+
         info!("🗑️ Todos os dados foram removidos do banco de dados");
         Ok(())
     }
 
     pub async fn store_embedding(&self, event_id: i64, embedding: &[f32]) -> Result<()> {
         let conn = self.connection.lock().await;
-        
+
         // Convert f32 array to bytes
         let embedding_bytes: Vec<u8> = embedding
             .iter()
@@ -339,7 +339,7 @@ impl Database {
 
     pub async fn get_embedding(&self, event_id: i64) -> Result<Option<Vec<f32>>> {
         let conn = self.connection.lock().await;
-        
+
         let embedding_bytes: Option<Vec<u8>> = conn.query_row(
             "SELECT embedding FROM embeddings WHERE event_id = ?1",
             params![event_id],
@@ -368,10 +368,10 @@ impl Database {
     /// Otimiza os índices FTS5
     pub async fn optimize_fts_index(&self) -> Result<()> {
         let conn = self.connection.lock().await;
-        
+
         conn.execute("INSERT INTO text_search(text_search) VALUES('optimize')", [])?;
         info!("✅ Índices FTS5 otimizados");
-        
+
         Ok(())
     }
 }
@@ -385,7 +385,7 @@ mod tests {
     async fn test_database_creation() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         let stats = db.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 0);
     }
@@ -394,7 +394,7 @@ mod tests {
     async fn test_store_and_search_events() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         let events = vec![
             KeyEvent {
                 timestamp: 1000,
@@ -462,11 +462,11 @@ mod tests {
                 is_function_key: false,
             },
         ];
-        
+
         for event in events {
             db.store_events(&[event]).await.unwrap();
         }
-        
+
         // Test search
         let results = db.search_text("hello", 10).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -477,7 +477,7 @@ mod tests {
     async fn test_search_by_timerange() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         let events = vec![
             KeyEvent {
                 timestamp: 1000,
@@ -506,12 +506,12 @@ mod tests {
         ];
 
         db.store_events(&events).await.unwrap();
-        
+
         // Search for middle event
         let results = db.search_by_timerange(1500, 2500, 10).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].key, "b");
-        
+
         // Search for all events
         let results = db.search_by_timerange(0, 5000, 10).await.unwrap();
         assert_eq!(results.len(), 3);
@@ -521,7 +521,7 @@ mod tests {
     async fn test_clear_all_data() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         let events = vec![
             KeyEvent {
                 timestamp: 1000,
@@ -534,14 +534,14 @@ mod tests {
         ];
 
         db.store_events(&events).await.unwrap();
-        
+
         // Verify data exists
         let stats = db.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 1);
-        
+
         // Clear data
         db.clear_all_data().await.unwrap();
-        
+
         // Verify data is gone
         let stats = db.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 0);
@@ -551,7 +551,7 @@ mod tests {
     async fn test_embedding_storage() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         // Store an event first
         let events = vec![
             KeyEvent {
@@ -564,19 +564,19 @@ mod tests {
             },
         ];
         db.store_events(&events).await.unwrap();
-        
+
         // Get the event ID (should be 1 for the first event)
         let event_id = 1;
-        
+
         // Store embedding
         let embedding = vec![0.1, 0.2, 0.3, 0.4, 0.5];
         db.store_embedding(event_id, &embedding).await.unwrap();
-        
+
         // Retrieve embedding
         let retrieved = db.get_embedding(event_id).await.unwrap();
         assert!(retrieved.is_some());
         let retrieved_embedding = retrieved.unwrap();
-        
+
         // Check values (allowing for floating point precision)
         assert_eq!(retrieved_embedding.len(), embedding.len());
         for (a, b) in embedding.iter().zip(retrieved_embedding.iter()) {
@@ -588,7 +588,7 @@ mod tests {
     async fn test_duplicate_events() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         let event = KeyEvent {
             timestamp: 1000,
             key: "a".to_string(),
@@ -597,11 +597,11 @@ mod tests {
             is_modifier: false,
             is_function_key: false,
         };
-        
+
         // Store same event twice
         db.store_events(&[event.clone()]).await.unwrap();
         db.store_events(&[event]).await.unwrap();
-        
+
         // Should only have one event due to UNIQUE constraint
         let stats = db.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 1);
@@ -611,10 +611,10 @@ mod tests {
     async fn test_empty_events_store() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         // Storing empty vec should not error
         db.store_events(&[]).await.unwrap();
-        
+
         let stats = db.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 0);
     }
@@ -623,7 +623,7 @@ mod tests {
     async fn test_vacuum() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         // Add and remove data
         let events = vec![
             KeyEvent {
@@ -637,7 +637,7 @@ mod tests {
         ];
         db.store_events(&events).await.unwrap();
         db.clear_all_data().await.unwrap();
-        
+
         // Vacuum should not error
         db.vacuum().await.unwrap();
     }
@@ -646,7 +646,7 @@ mod tests {
     async fn test_get_embedding_nonexistent() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         // Try to get embedding for non-existent event
         let result = db.get_embedding(999).await.unwrap();
         assert!(result.is_none());
@@ -656,7 +656,7 @@ mod tests {
     async fn test_text_search() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         // Store events that form words
         let events = vec![
             KeyEvent {
@@ -692,11 +692,11 @@ mod tests {
                 is_function_key: false,
             },
         ];
-        
+
         for event in events {
             db.store_events(&[event]).await.unwrap();
         }
-        
+
         // Search for "test"
         let results = db.search_text("test", 10).await.unwrap();
         assert!(!results.is_empty());
@@ -706,7 +706,7 @@ mod tests {
     async fn test_stats() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         // Store some events
         for i in 0..5 {
             let event = KeyEvent {
@@ -719,7 +719,7 @@ mod tests {
             };
             db.store_events(&[event]).await.unwrap();
         }
-        
+
         let stats = db.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 5);
         assert_eq!(stats.oldest_event, Some(0));
@@ -730,7 +730,7 @@ mod tests {
     async fn test_special_keys() {
         let temp_file = NamedTempFile::new().unwrap();
         let db = Database::new(temp_file.path()).await.unwrap();
-        
+
         // Store special key events
         let events = vec![
             KeyEvent {
@@ -750,12 +750,12 @@ mod tests {
                 is_function_key: false,
             },
         ];
-        
+
         for event in events {
             db.store_events(&[event]).await.unwrap();
         }
-        
+
         let stats = db.get_stats().await.unwrap();
         assert_eq!(stats.total_events, 2);
     }
-} 
+}

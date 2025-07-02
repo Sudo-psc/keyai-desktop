@@ -59,4 +59,4 @@ export interface SearchHistoryItem {
   type: SearchType
   timestamp: number
   results_count: number
-} 
+}

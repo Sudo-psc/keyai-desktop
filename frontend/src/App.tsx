@@ -33,7 +33,7 @@ function App() {
     <div className="min-h-screen bg-black text-white">
       {/* Background Gradient */}
       <div className="fixed inset-0 bg-gradient-to-br from-black via-charcoal to-black pointer-events-none" />
-      
+
       {/* Main Layout */}
       <div className="relative z-10 flex h-screen">
         {/* Sidebar */}
@@ -43,7 +43,7 @@ function App() {
               <h1 className="text-2xl font-bold gradient-text">key.ai</h1>
               <p className="text-caption text-secondary mt-1">Desktop Search</p>
             </div>
-            
+
             <nav className="space-y-2">
               <a href="#" className="sidebar-nav-item active">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,4 +113,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;

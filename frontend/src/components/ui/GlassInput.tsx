@@ -22,20 +22,20 @@ const GlassInput = forwardRef<HTMLInputElement, GlassInputProps>(({
 }, ref) => {
   const [showPassword, setShowPassword] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
-  
+
   const inputType = showPasswordToggle ? (showPassword ? 'text' : 'password') : type;
-  
+
   const inputClasses = [
     'glass-input',
     error && 'glass-input-error',
     className
   ].filter(Boolean).join(' ');
-  
+
   const containerClasses = [
     'glass-input-group',
     containerClassName
   ].filter(Boolean).join(' ');
-  
+
   return (
     <div className={`space-y-2 ${containerClassName}`}>
       {label && (
@@ -43,17 +43,17 @@ const GlassInput = forwardRef<HTMLInputElement, GlassInputProps>(({
           {label}
         </label>
       )}
-      
+
       <div className={containerClasses}>
         {Icon && (
-          <Icon 
-            size={16} 
+          <Icon
+            size={16}
             className={`input-icon transition-colors ${
               isFocused ? 'text-accent' : 'text-secondary'
             }`}
           />
         )}
-        
+
         <input
           ref={ref}
           type={inputType}
@@ -68,7 +68,7 @@ const GlassInput = forwardRef<HTMLInputElement, GlassInputProps>(({
           }}
           {...props}
         />
-        
+
         {showPasswordToggle && (
           <button
             type="button"
@@ -80,7 +80,7 @@ const GlassInput = forwardRef<HTMLInputElement, GlassInputProps>(({
           </button>
         )}
       </div>
-      
+
       {error && (
         <span className="text-small text-red-400 block">
           {error}
@@ -92,4 +92,4 @@ const GlassInput = forwardRef<HTMLInputElement, GlassInputProps>(({
 
 GlassInput.displayName = 'GlassInput';
 
-export default GlassInput; 
+export default GlassInput;

@@ -83,7 +83,7 @@ impl EmbeddingModel {
 impl SearchEngine {
     pub async fn new(database: Arc<Database>) -> Result<Self> {
         info!("🔍 Inicializando motor de busca...");
-        
+
         // Try to initialize embedding model
         let embedding_model = match EmbeddingModel::new() {
             Ok(model) => {
@@ -104,13 +104,13 @@ impl SearchEngine {
 
     pub async fn search_text(&self, query: &str, options: &SearchOptions) -> Result<Vec<SearchResult>> {
         debug!("🔍 Executando busca textual para: {}", query);
-        
+
         self.database.search_text(query, options.limit).await
     }
 
     pub async fn search_semantic(&self, query: &str, options: &SearchOptions) -> Result<Vec<HybridSearchResult>> {
         debug!("🧠 Executando busca semântica para: {}", query);
-        
+
         let embedding_model = match &self.embedding_model {
             Some(model) => model,
             None => {
@@ -121,13 +121,13 @@ impl SearchEngine {
 
         // Generate embedding for query
         let query_embedding = embedding_model.encode(query)?;
-        
+
         // Get all events with embeddings (this is a simplified approach)
         // In production, you'd want to use a proper vector database or indexing
         let all_events = self.database.search_by_timerange(0, u64::MAX, 10000).await?;
-        
+
         let mut semantic_results = Vec::new();
-        
+
         for event in all_events {
             if let Some(content) = &event.text_content {
                 if content.trim().is_empty() {
@@ -149,7 +149,7 @@ impl SearchEngine {
 
                 // Calculate similarity
                 let similarity = embedding_model.similarity(&query_embedding, &event_embedding);
-                
+
                 if similarity >= options.min_score_threshold {
                     semantic_results.push(HybridSearchResult {
                         id: event.id,
@@ -190,7 +190,7 @@ impl SearchEngine {
         use std::collections::HashMap;
 
         let mut combined_scores: HashMap<i64, (f64, f64, String, u64, Option<String>)> = HashMap::new();
-        
+
         // Add text search scores
         for (rank, result) in text_results.iter().enumerate() {
             let rrf_score = 1.0 / (60.0 + rank as f64 + 1.0); // RRF with k=60
@@ -207,7 +207,7 @@ impl SearchEngine {
         for (rank, result) in semantic_results.iter().enumerate() {
             let rrf_score = 1.0 / (60.0 + rank as f64 + 1.0); // RRF with k=60
             let semantic_score = rrf_score * options.semantic_weight;
-            
+
             combined_scores.entry(result.id)
                 .and_modify(|(_text_score, sem_score, _, _, _)| *sem_score = semantic_score)
                 .or_insert((0.0, semantic_score, result.content.clone(), result.timestamp, result.context.clone()));
@@ -256,7 +256,7 @@ impl SearchEngine {
 
     pub async fn get_popular_searches(&self, limit: usize) -> Result<Vec<String>> {
         debug!("📊 Obtendo buscas populares");
-        
+
         // This would typically be based on search analytics
         // For now, return some common patterns
         Ok(vec![
@@ -270,12 +270,12 @@ impl SearchEngine {
 
     pub async fn optimize_search_index(&self) -> Result<()> {
         info!("🔧 Otimizando índices de busca...");
-        
+
         // Optimize database
         self.database.vacuum().await?;
-        
+
         // TODO: Optimize vector index if using a proper vector database
-        
+
         info!("✅ Índices de busca otimizados");
         Ok(())
     }
@@ -294,7 +294,7 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         let database = Arc::new(Database::new(temp_file.path()).await.unwrap());
         let search_engine = SearchEngine::new(database).await.unwrap();
-        
+
         // Test basic functionality
         let options = SearchOptions::default();
         let results = search_engine.search_text("test", &options).await.unwrap();
@@ -309,4 +309,4 @@ mod tests {
         assert_eq!(options.semantic_weight, 0.3);
         assert_eq!(options.min_score_threshold, 0.1);
     }
-} 
+}

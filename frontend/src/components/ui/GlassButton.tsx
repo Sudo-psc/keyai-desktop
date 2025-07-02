@@ -23,19 +23,19 @@ const GlassButton = forwardRef<HTMLButtonElement, GlassButtonProps>(({
   ...props
 }, ref) => {
   const baseClasses = 'glass-button';
-  
+
   const variantClasses = {
     primary: '',
     secondary: 'glass-button-secondary',
     success: 'glass-button-success'
   };
-  
+
   const sizeClasses = {
     sm: 'glass-button-sm',
     md: '',
     lg: 'glass-button-lg'
   };
-  
+
   const classes = [
     baseClasses,
     variantClasses[variant],
@@ -43,13 +43,13 @@ const GlassButton = forwardRef<HTMLButtonElement, GlassButtonProps>(({
     loading && 'glass-shimmer',
     className
   ].filter(Boolean).join(' ');
-  
+
   const iconSize = {
     sm: 14,
     md: 16,
     lg: 18
   };
-  
+
   return (
     <button
       ref={ref}
@@ -79,4 +79,4 @@ const GlassButton = forwardRef<HTMLButtonElement, GlassButtonProps>(({
 
 GlassButton.displayName = 'GlassButton';
 
-export default GlassButton; 
+export default GlassButton;

@@ -35,4 +35,4 @@ export function useKeyboard({ enabled = true, bindings }: UseKeyboardOptions) {
   }, [enabled, bindings])
 }
 
-export default useKeyboard 
+export default useKeyboard

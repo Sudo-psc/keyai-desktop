@@ -27,7 +27,7 @@ export default function Header({ stats, onRefresh }: HeaderProps) {
 
   const toggleAgent = async () => {
     if (!agentStatus || isTogglingAgent) return
-    
+
     setIsTogglingAgent(true)
     try {
       const newStatus = await invoke<AgentStatus>('toggle_agent', {
@@ -131,4 +131,4 @@ export default function Header({ stats, onRefresh }: HeaderProps) {
       </div>
     </header>
   )
-} 
+}

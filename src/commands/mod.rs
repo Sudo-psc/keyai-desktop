@@ -44,16 +44,16 @@ pub async fn search_text(
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> Result<SearchResponse, String> {
-    debug!("🔍 Comando search_text chamado: query='{}', limit={:?}, offset={:?}", 
+    debug!("🔍 Comando search_text chamado: query='{}', limit={:?}, offset={:?}",
            query, limit, offset);
-    
+
     let start_time = std::time::Instant::now();
-    
+
     match state.database.search_text(&query, limit.unwrap_or(50)).await {
         Ok(results) => {
             let search_time = start_time.elapsed().as_millis() as u64;
             info!("✅ Busca textual concluída: {} resultados em {}ms", results.len(), search_time);
-            
+
             Ok(SearchResponse {
                 total_count: results.len(),
                 results,
@@ -75,22 +75,22 @@ pub async fn search_semantic(
     limit: Option<usize>,
     threshold: Option<f32>,
 ) -> Result<HybridSearchResponse, String> {
-    debug!("🧠 Comando search_semantic chamado: query='{}', limit={:?}, threshold={:?}", 
+    debug!("🧠 Comando search_semantic chamado: query='{}', limit={:?}, threshold={:?}",
            query, limit, threshold);
-    
+
     let start_time = std::time::Instant::now();
-    
+
     let options = SearchOptions {
         limit: limit.unwrap_or(20),
         min_score_threshold: threshold.unwrap_or(0.7) as f64,
         ..Default::default()
     };
-    
+
     match state.search_engine.search_semantic(&query, &options).await {
         Ok(results) => {
             let search_time = start_time.elapsed().as_millis() as u64;
             info!("✅ Busca semântica concluída: {} resultados em {}ms", results.len(), search_time);
-            
+
             Ok(HybridSearchResponse {
                 total_count: results.len(),
                 results,
@@ -112,14 +112,14 @@ pub async fn search_hybrid(
     options: SearchOptions,
 ) -> Result<HybridSearchResponse, String> {
     debug!("🔀 Comando search_hybrid chamado: query='{}', options={:?}", query, options);
-    
+
     let start_time = std::time::Instant::now();
-    
+
     match state.search_engine.search_hybrid(&query, &options).await {
         Ok(results) => {
             let search_time = start_time.elapsed().as_millis() as u64;
             info!("✅ Busca híbrida concluída: {} resultados em {}ms", results.len(), search_time);
-            
+
             Ok(HybridSearchResponse {
                 total_count: results.len(),
                 results,
@@ -139,7 +139,7 @@ pub async fn get_database_stats(
     state: State<'_, AppState>
 ) -> Result<DatabaseStats, String> {
     debug!("📊 Comando get_database_stats chamado");
-    
+
     match state.database.get_stats().await {
         Ok(stats) => {
             info!("✅ Estatísticas obtidas: {} eventos", stats.total_events);
@@ -159,9 +159,9 @@ pub async fn get_search_suggestions(
     partial_query: String,
     limit: Option<usize>,
 ) -> Result<Vec<String>, String> {
-    debug!("💡 Comando get_search_suggestions chamado: query='{}', limit={:?}", 
+    debug!("💡 Comando get_search_suggestions chamado: query='{}', limit={:?}",
            partial_query, limit);
-    
+
     match state.search_engine.get_search_suggestions(&partial_query, limit.unwrap_or(10)).await {
         Ok(suggestions) => {
             info!("✅ {} sugestões geradas", suggestions.len());
@@ -180,7 +180,7 @@ pub async fn optimize_search_index(
     state: State<'_, AppState>
 ) -> Result<String, String> {
     debug!("🔧 Comando optimize_search_index chamado");
-    
+
     match state.search_engine.optimize_search_index().await {
         Ok(_) => {
             info!("✅ Índices de busca otimizados");
@@ -200,9 +200,9 @@ pub async fn toggle_agent(
     state: State<'_, AppState>
 ) -> Result<AgentStatus, String> {
     debug!("🎛️ Comando toggle_agent chamado: enable={}", enable);
-    
+
     let mut agent = state.agent.lock().await;
-    
+
     if enable {
         if !agent.is_running() {
             match agent.start().await {
@@ -247,7 +247,7 @@ pub async fn get_agent_status(
     state: State<'_, AppState>
 ) -> Result<AgentStatus, String> {
     debug!("📊 Comando get_agent_status chamado");
-    
+
     let agent = state.agent.lock().await;
     let metrics = agent.get_metrics();
 
@@ -265,13 +265,13 @@ pub async fn update_agent_config(
     state: State<'_, AppState>
 ) -> Result<AgentStatus, String> {
     debug!("🔧 Comando update_agent_config chamado");
-    
+
     let agent = state.agent.lock().await;
-    
+
     match agent.update_config(config).await {
         Ok(_) => {
             info!("✅ Configuração do agente atualizada");
-            
+
             let metrics = agent.get_metrics();
 
             Ok(AgentStatus {
@@ -293,7 +293,7 @@ pub async fn get_agent_config(
     state: State<'_, AppState>
 ) -> Result<AgentConfig, String> {
     debug!("⚙️ Comando get_agent_config chamado");
-    
+
     let agent = state.agent.lock().await;
     Ok(agent.get_config().await)
 }
@@ -304,7 +304,7 @@ pub async fn get_current_window(
     state: State<'_, AppState>
 ) -> Result<Option<WindowInfo>, String> {
     debug!("🪟 Comando get_current_window chamado");
-    
+
     let agent = state.agent.lock().await;
     Ok(agent.get_current_window().await)
 }
@@ -315,7 +315,7 @@ pub async fn get_agent_metrics(
     state: State<'_, AppState>
 ) -> Result<HashMap<String, u64>, String> {
     debug!("📈 Comando get_agent_metrics chamado");
-    
+
     let agent = state.agent.lock().await;
     Ok(agent.get_metrics())
 }
@@ -326,7 +326,7 @@ pub async fn get_stats(
     state: State<'_, AppState>
 ) -> Result<AppStats, String> {
     debug!("📊 Comando get_stats chamado");
-    
+
     let db_stats = match state.database.get_stats().await {
         Ok(stats) => stats,
         Err(e) => {
@@ -357,7 +357,7 @@ pub async fn clear_data(
     state: State<'_, AppState>
 ) -> Result<String, String> {
     debug!("🗑️ Comando clear_data chamado: confirm={}", confirm);
-    
+
     if !confirm {
         return Err("Confirmação necessária para limpar dados".to_string());
     }
@@ -391,7 +391,7 @@ pub async fn get_popular_searches(
     state: State<'_, AppState>
 ) -> Result<Vec<String>, String> {
     debug!("🔥 Comando get_popular_searches chamado");
-    
+
     match state.search_engine.get_popular_searches(limit.unwrap_or(10)).await {
         Ok(searches) => {
             debug!("✅ {} buscas populares encontradas", searches.len());
@@ -413,7 +413,7 @@ pub async fn export_data(
     state: State<'_, AppState>
 ) -> Result<String, String> {
     debug!("📤 Comando export_data chamado: path='{}'", file_path);
-    
+
     // Implementação básica de exportação
     match export_data_to_file(&state.database, &file_path, date_from, date_to).await {
         Ok(count) => {
@@ -434,7 +434,7 @@ pub async fn import_data(
     state: State<'_, AppState>
 ) -> Result<String, String> {
     debug!("📥 Comando import_data chamado: path='{}'", file_path);
-    
+
     // Implementação básica de importação
     match import_data_from_file(&state.database, &file_path).await {
         Ok(count) => {
@@ -454,23 +454,23 @@ pub async fn health_check(
     state: State<'_, AppState>
 ) -> Result<HashMap<String, String>, String> {
     debug!("🏥 Comando health_check chamado");
-    
+
     let mut status = HashMap::new();
-    
+
     // Test database
     match state.database.get_stats().await {
         Ok(_) => status.insert("database".to_string(), "ok".to_string()),
         Err(e) => status.insert("database".to_string(), format!("error: {}", e)),
     };
-    
+
     // Test search engine - basic check
     status.insert("search_engine".to_string(), "ok".to_string());
-    
+
     // Test agent
     let agent = state.agent.lock().await;
     let agent_status = if agent.is_running() { "running" } else { "stopped" };
     status.insert("agent".to_string(), agent_status.to_string());
-    
+
     info!("✅ Health check concluído: {:?}", status);
     Ok(status)
 }
@@ -485,17 +485,17 @@ async fn export_data_to_file(
 ) -> Result<usize, anyhow::Error> {
     use std::fs::File;
     use std::io::Write;
-    
+
     // Get all events (simplified implementation)
     let events = database.search_by_timerange(0, u64::MAX, 10000).await?;
-    
+
     // Convert to JSON
     let json_data = serde_json::to_string_pretty(&events)?;
-    
+
     // Write to file
     let mut file = File::create(file_path)?;
     file.write_all(json_data.as_bytes())?;
-    
+
     Ok(events.len())
 }
 

@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 
 fn benchmark_key_to_string(c: &mut Criterion) {
     use rdev::Key;
-    
+
     c.bench_function("Agent::key_to_string", |b| {
         b.iter(|| {
             Agent::key_to_string(black_box(Key::KeyA));
@@ -22,12 +22,12 @@ fn benchmark_key_to_string(c: &mut Criterion) {
 fn benchmark_event_processing(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     let temp_file = NamedTempFile::new().unwrap();
-    
+
     let masker = Masker::new();
     let database = rt.block_on(async {
         Arc::new(Database::new(temp_file.path()).await.unwrap())
     });
-    
+
     c.bench_function("Agent event processing", |b| {
         b.iter(|| {
             let events = vec![
@@ -46,12 +46,12 @@ fn benchmark_event_processing(c: &mut Criterion) {
                     application: Some("Test App".to_string()),
                 },
             ];
-            
+
             let masked_events: Vec<KeyEvent> = events
                 .into_iter()
                 .map(|e| masker.mask_event(e))
                 .collect();
-            
+
             black_box(masked_events);
         })
     });
@@ -60,13 +60,13 @@ fn benchmark_event_processing(c: &mut Criterion) {
 fn benchmark_batch_event_store(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     let temp_file = NamedTempFile::new().unwrap();
-    
+
     let database = rt.block_on(async {
         Arc::new(Database::new(temp_file.path()).await.unwrap())
     });
-    
+
     let mut group = c.benchmark_group("Database store events");
-    
+
     for size in [10, 100, 1000].iter() {
         group.bench_with_input(format!("batch_size_{}", size), size, |b, &size| {
             let events: Vec<KeyEvent> = (0..size).map(|i| KeyEvent {
@@ -76,19 +76,19 @@ fn benchmark_batch_event_store(c: &mut Criterion) {
                 window_title: Some("Benchmark Window".to_string()),
                 application: Some("Benchmark App".to_string()),
             }).collect();
-            
+
             b.to_async(&rt).iter(|| async {
                 database.store_events(black_box(&events)).await.unwrap();
             });
         });
     }
-    
+
     group.finish();
 }
 
-criterion_group!(benches, 
+criterion_group!(benches,
     benchmark_key_to_string,
     benchmark_event_processing,
     benchmark_batch_event_store
 );
-criterion_main!(benches); 
+criterion_main!(benches);
